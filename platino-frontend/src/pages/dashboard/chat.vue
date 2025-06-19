@@ -24,26 +24,20 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { useOllamaStore } from '@/stores/ollama'
 
-interface Message {
-  from: string
-  text: string
-}
-
-const messages = ref<Message[]>([
-  { from: 'AI', text: 'Hola, ¿en qué puedo ayudarte?' },
-])
-
+const store = useOllamaStore()
 const input = ref('')
+const messages = computed(() => store.messages)
+
+onMounted(() => {
+  store.connect()
+})
 
 function send () {
   if (!input.value) return
-  messages.value.push({ from: 'Tú', text: input.value })
-  messages.value.push({
-    from: 'AI',
-    text: 'Esta es una respuesta generada de forma simulada.',
-  })
+  store.sendMessage(input.value)
   input.value = ''
 }
 </script>
