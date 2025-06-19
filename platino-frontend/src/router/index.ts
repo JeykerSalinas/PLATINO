@@ -14,6 +14,13 @@ const router = createRouter({
   routes: setupLayouts(routes),
 })
 
+// Simple auth guard example
+router.beforeEach((to) => {
+  if (to.meta.requiresAuth && !localStorage.getItem('auth')) {
+    return { path: '/' }
+  }
+})
+
 // Workaround for https://github.com/vitejs/vite/issues/11804
 router.onError((err, to) => {
   if (err?.message?.includes?.('Failed to fetch dynamically imported module')) {
