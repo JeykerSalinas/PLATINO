@@ -14,7 +14,7 @@
     <input
       ref="fileInput"
       type="file"
-      accept="application/pdf"
+      accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
       class="d-none"
       @change="handleFileChange"
     />
@@ -43,7 +43,7 @@ const fileInput = ref<HTMLInputElement | null>(null);
 function onDrop(e: DragEvent) {
   const files = e.dataTransfer?.files;
   if (files && files.length > 0) {
-    uploadPdf(files[0]);
+    uploadFile(files[0]);
   }
 }
 
@@ -51,12 +51,12 @@ function handleFileChange(e: Event) {
   const target = e.target as HTMLInputElement;
   const files = target.files;
   if (files && files.length > 0) {
-    uploadPdf(files[0]);
+    uploadFile(files[0]);
   }
   if (target) target.value = "";
 }
 
-async function uploadPdf(file: File) {
+async function uploadFile(file: File) {
   const formData = new FormData();
   formData.append("file", file);
   try {
@@ -70,7 +70,7 @@ async function uploadPdf(file: File) {
       });
     }
   } catch (err) {
-    console.error("Error al dividir PDF:", err);
+    console.error("Error al dividir archivo:", err);
   }
 }
 
