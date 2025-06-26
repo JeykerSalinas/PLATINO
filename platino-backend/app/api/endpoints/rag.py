@@ -1,6 +1,10 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 from sqlalchemy.orm import Session
 from typing import List
+from io import BytesIO
+
+from llama_index.readers.file import PDFReader
+from llama_index.core.node_parser import SimpleNodeParser
 
 from ...db.session import get_db
 from ...db.models import Document
@@ -33,3 +37,18 @@ async def list_files(db: Session = Depends(get_db)):
     docs = db.query(Document).all()
     filenames = [doc.filename for doc in docs]
     return {"files": filenames}
+
+
+@router.post("/split_pdf")
+async def split_pdf(file: UploadFile = File(...)):
+    """Return PDF chunks using LlamaIndex."""
+    try:
+        contents = await file.read()
+        pdf_reader = PDFReader()
+        documents = pdf_reader.load_data(BytesIO(contents))
+        parser = SimpleNodeParser.from_defaults()
+        nodes = parser.get_nodes_from_documents(documents)
+        chunks = [node.text for node in nodes]
+        return {"chunks": chunks}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
