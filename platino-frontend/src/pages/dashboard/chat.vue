@@ -24,6 +24,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useOllamaStore } from "@/stores/ollama";
+import axios from "axios";
+
 const store = useOllamaStore();
 const input = ref("");
 const messages = computed(() => store.messages);
@@ -32,11 +34,117 @@ onMounted(async () => {
   store.connect();
 });
 
+// function send() {
+//   if (!input.value) return;
+//   store.sendMessage(input.value);
+//   input.value = "";
+// }
+
+const sendMesageToOllama = async (message: string) => {
+  try {
+    const response = await axios.post("http://localhost:11434/api/generate", {
+      model: "llama3",
+      prompt: message,
+      stream: true,
+    });
+    return response.data;
+  } catch (error) {
+    console.error("Error al enviar el mensaje a Ollama:", error);
+    return null;
+  }
+};
+// function send() {
+//   if (!input.value) return;
+//   let text = input.value;
+//   input.value = "";
+//   store.addMessage({
+//     from: "user",
+//     text: text,
+//   });
+//   sendMesageToOllama(text).then((response) => {
+//     if (response) {
+//       store.addMessage({
+//         from: "ai",
+//         text: response.response,
+//       });
+//     }
+//   });
+// }
 function send() {
   if (!input.value) return;
-  store.sendMessage(input.value);
+
+  const text = input.value;
   input.value = "";
+
+  // Agregar mensaje del usuario
+  store.addMessage({
+    from: "user",
+    text,
+  });
+
+  // Inicializar mensaje del asistente
+  let aiResponse = "";
+  store.addMessage({
+    from: "ai",
+    text: aiResponse,
+  });
+
+  // Referencia al mensaje recién agregado para ir actualizándolo
+  const aiIndex = store.messages.length - 1;
+
+  sendMessageToOllamaStream(text, (chunk) => {
+    aiResponse += chunk;
+    store.messages[aiIndex].text = aiResponse;
+  });
 }
+
+const sendMessageToOllamaStream = async (
+  prompt: string,
+  onChunk: (text: string) => void
+) => {
+  const response = await fetch("http://localhost:11434/api/generate", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "llama3",
+      prompt,
+      stream: true,
+    }),
+  });
+
+  const reader = response.body?.getReader();
+  const decoder = new TextDecoder("utf-8");
+
+  let fullText = "";
+
+  if (!reader) return;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    const chunk = decoder.decode(value, { stream: true });
+
+    // Ollama envía múltiples objetos JSON por línea
+    const lines = chunk.split("\n").filter(Boolean);
+
+    for (const line of lines) {
+      try {
+        const json = JSON.parse(line);
+        if (json.response) {
+          fullText += json.response;
+          onChunk(json.response); // Emite fragmento
+        }
+      } catch (err) {
+        console.error("Error al parsear línea:", line, err);
+      }
+    }
+  }
+
+  return fullText;
+};
 </script>
 
 <route lang="yaml">

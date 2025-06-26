@@ -1,0 +1,19 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+venv/
+.env
+
+# DataBase
+*.db
+
+# Docker
+*.pid
+*.log
+
+# Front
+node_modules/
+dist/
