@@ -20,4 +20,6 @@ uvicorn app.main:app --reload
 El websocket está disponible en `/ws/chat` y los endpoints para manejo de archivos en `/api/files`.
 El endpoint `/api/split_pdf` permite enviar un PDF y recibir los textos divididos en chunks utilizando LlamaIndex.
 
+Para subir documentos y obtener sus chunks (tanto PDF como DOCX) usa `/api/files_2`. Los chunks generados se almacenan en `app/db/chunks_db.json` a modo de base de datos temporal.
+
 Puedes consultar la documentación automática (Swagger UI) en `http://localhost:8000/docs` cuando la aplicación esté en marcha.

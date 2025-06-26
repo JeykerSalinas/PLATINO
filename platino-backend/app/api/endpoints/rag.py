@@ -6,10 +6,13 @@ from llama_index.readers.file import PyMuPDFReader
 from fastapi.middleware.cors import CORSMiddleware
 from llama_index.readers.file import PDFReader
 from llama_index.core.node_parser import SimpleNodeParser
+from llama_index.core import Document as LlamaDocument
+from docx import Document as DocxDocument
 import tempfile
 
 from ...db.session import get_db
 from ...db.models import Document
+from ...db.chunks import add_chunks
 
 router = APIRouter()
 
@@ -57,26 +60,34 @@ async def split_pdf(file: UploadFile = File(...)):
 
 
 @router.post("/files_2")
-async def upload_and_split_pdf(file: UploadFile = File(...)):
-    if not file.filename.endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Solo se permiten archivos PDF")
+async def upload_and_split_file(file: UploadFile = File(...)):
+    """Upload a PDF or DOCX and return its chunks."""
+    if not (file.filename.endswith(".pdf") or file.filename.endswith(".docx")):
+        raise HTTPException(status_code=400, detail="Solo se permiten archivos PDF o DOCX")
 
     try:
         content = await file.read()
 
-        # Escribir contenido a archivo temporal
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-            tmp.write(content)
-            tmp_path = tmp.name
+        documents = []
+        if file.filename.endswith(".pdf"):
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                tmp.write(content)
+                tmp_path = tmp.name
+            reader = PyMuPDFReader()
+            documents = reader.load_data(file_path=tmp_path)
+        else:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp:
+                tmp.write(content)
+                tmp_path = tmp.name
+            doc = DocxDocument(tmp_path)
+            text = "\n".join([p.text for p in doc.paragraphs])
+            documents = [LlamaDocument(text=text)]
 
-        # Leer el PDF usando la ruta temporal
-        reader = PyMuPDFReader()
-        documents = reader.load_data(file_path=tmp_path)
-
-        # Dividir en chunks
         parser = SimpleNodeParser()
         nodes = parser.get_nodes_from_documents(documents)
         chunks = [node.text for node in nodes]
+
+        add_chunks(file.filename, chunks)
 
         return {"filename": file.filename, "chunks": chunks}
 
