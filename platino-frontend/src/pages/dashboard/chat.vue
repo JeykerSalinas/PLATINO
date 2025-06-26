@@ -11,12 +11,21 @@
         </v-list-item-content>
       </v-list-item>
     </v-list>
+    <input
+      ref="fileInput"
+      type="file"
+      accept="application/pdf"
+      class="d-none"
+      @change="handleFileChange"
+    />
     <v-text-field
       v-model="input"
       label="Escribe tu mensaje"
       append-icon="mdi-send"
       @click:append="send"
       @keyup.enter="send"
+      @dragover.prevent
+      @drop.prevent="onDrop"
     />
   </v-container>
 </template>
@@ -29,6 +38,41 @@ import axios from "axios";
 const store = useOllamaStore();
 const input = ref("");
 const messages = computed(() => store.messages);
+const fileInput = ref<HTMLInputElement | null>(null);
+
+function onDrop(e: DragEvent) {
+  const files = e.dataTransfer?.files;
+  if (files && files.length > 0) {
+    uploadPdf(files[0]);
+  }
+}
+
+function handleFileChange(e: Event) {
+  const target = e.target as HTMLInputElement;
+  const files = target.files;
+  if (files && files.length > 0) {
+    uploadPdf(files[0]);
+  }
+  if (target) target.value = "";
+}
+
+async function uploadPdf(file: File) {
+  const formData = new FormData();
+  formData.append("file", file);
+  try {
+    const { data } = await axios.post(
+      "http://localhost:8000/api/files_2",
+      formData
+    );
+    if (data.chunks) {
+      data.chunks.forEach((chunk: string) => {
+        store.addMessage({ from: "ai", text: chunk });
+      });
+    }
+  } catch (err) {
+    console.error("Error al dividir PDF:", err);
+  }
+}
 
 onMounted(async () => {
   store.connect();
