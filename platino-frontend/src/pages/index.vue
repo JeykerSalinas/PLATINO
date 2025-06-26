@@ -1,5 +1,4 @@
 <template>
-  <HelloWorld />
   <v-btn class="mt-4" @click="login">Iniciar sesión</v-btn>
   <div class="mt-2">
     <RouterLink to="/dashboard">Ir al Dashboard</RouterLink>
@@ -7,7 +6,7 @@
 </template>
 
 <script setup lang="ts">
-function login () {
-  localStorage.setItem('auth', 'true')
+function login() {
+  localStorage.setItem("auth", "true");
 }
 </script>
