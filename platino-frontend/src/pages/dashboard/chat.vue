@@ -24,43 +24,18 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useOllamaStore } from "@/stores/ollama";
-import axios from "axios";
 const store = useOllamaStore();
 const input = ref("");
 const messages = computed(() => store.messages);
 
 onMounted(async () => {
-  // store.connect();
+  store.connect();
 });
 
-const sendMesageToOllama = async (message: string) => {
-  try {
-    const response = await axios.post("http://localhost:11434/api/generate", {
-      model: "llama3",
-      prompt: message,
-      stream: false,
-    });
-    return response.data;
-  } catch (error) {
-    console.error("Error al enviar el mensaje a Ollama:", error);
-    return null;
-  }
-};
 function send() {
   if (!input.value) return;
-  store.addMessage({
-    from: "user",
-    text: input.value,
-  });
-  input.value = ""; // Limpiar el campo de entrada
-  sendMesageToOllama(input.value).then((response) => {
-    if (response) {
-      store.addMessage({
-        from: "ai",
-        text: response.response,
-      });
-    }
-  });
+  store.sendMessage(input.value);
+  input.value = "";
 }
 </script>
 
