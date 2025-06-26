@@ -61,11 +61,8 @@ async function uploadPdf(file: File) {
   formData.append("file", file);
   try {
     const { data } = await axios.post(
-      "http://localhost:8000/api/split_pdf",
-      formData,
-      {
-        headers: { "Content-Type": "multipart/form-data" },
-      }
+      "http://localhost:8000/api/files_2",
+      formData
     );
     if (data.chunks) {
       data.chunks.forEach((chunk: string) => {
