@@ -1,33 +1,42 @@
 <template>
-  <v-container>
-    <h2 class="mb-4">Chat con IA</h2>
-    <v-list class="mb-4">
-      <v-list-item v-for="(msg, index) in messages" :key="index">
-        <v-list-item-content>
-          <v-list-item-title class="text-subtitle-1">
-            {{ msg.from }}:
-          </v-list-item-title>
-          <v-list-item-subtitle>{{ msg.text }}</v-list-item-subtitle>
-        </v-list-item-content>
-      </v-list-item>
-    </v-list>
-    <input
-      ref="fileInput"
-      type="file"
-      accept="application/pdf"
-      class="d-none"
-      @change="handleFileChange"
-    />
-    <v-text-field
-      v-model="input"
-      label="Escribe tu mensaje"
-      append-icon="mdi-send"
-      @click:append="send"
-      @keyup.enter="send"
-      @dragover.prevent
-      @drop.prevent="onDrop"
-    />
-  </v-container>
+  <div class="pa-3 d-flex flex-column justify-end fill-height">
+    <div>
+      <v-list>
+        <v-list-item v-for="(msg, index) in messages" :key="index">
+          <v-list-item-content>
+            <v-list-item-title class="text-subtitle-1">
+              {{ msg.from }}
+            </v-list-item-title>
+            <v-list-item-subtitle>
+              {{ msg.text }}
+            </v-list-item-subtitle>
+          </v-list-item-content>
+        </v-list-item>
+      </v-list>
+    </div>
+    <div class="mt-3">
+      <!-- Input de PDF oculto -->
+      <input
+        ref="fileInput"
+        type="file"
+        accept="application/pdf"
+        class="d-none"
+        @change="handleFileChange"
+      />
+
+      <!-- Input de texto -->
+      <v-text-field
+        v-model="input"
+        label="Escribe tu mensaje"
+        append-icon="mdi-send"
+        @click:append="send"
+        @keyup.enter="send"
+        @dragover.prevent
+        @drop.prevent="onDrop"
+      />
+    </div>
+    <!-- Mensajes -->
+  </div>
 </template>
 
 <script setup lang="ts">
