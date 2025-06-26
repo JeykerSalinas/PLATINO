@@ -1,0 +1,30 @@
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from .api.endpoints import rag
+from .websocket import llm
+from .db.session import engine
+from .db.models import Base
+
+app = FastAPI(title="Platino Backend")
+
+
+@app.on_event("startup")
+def on_startup() -> None:
+    """Create database tables."""
+    Base.metadata.create_all(bind=engine)
+
+# Enable CORS for local development
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(rag.router, prefix="/api")
+app.include_router(llm.router)
+
+@app.get("/")
+async def root():
+    return {"status": "ok"}
