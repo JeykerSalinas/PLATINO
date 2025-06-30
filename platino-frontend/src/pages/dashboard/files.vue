@@ -23,9 +23,11 @@
             >
               <v-card>
                 <v-img :src="doc.thumbnail" height="120" cover />
-                <v-card-title class="text-wrap">{{
-                  doc.filename
-                }}</v-card-title>
+                <v-card-title class="text-wrap">{{ doc.filename }}</v-card-title>
+                <v-card-actions>
+                  <v-btn icon="mdi-pencil" @click="rename(doc)" size="small" />
+                  <v-btn icon="mdi-delete" @click="remove(doc.id)" size="small" />
+                </v-card-actions>
               </v-card>
             </v-col>
           </v-row>
@@ -60,6 +62,24 @@ function upload(file: File) {
   axios.post("http://localhost:8000/api/files", formData).then((res) => {
     documents.value.push(res.data);
   });
+}
+
+function remove(id: number) {
+  axios.delete(`http://localhost:8000/api/files/${id}`).then(() => {
+    documents.value = documents.value.filter((d) => d.id !== id);
+  });
+}
+
+function rename(doc: Doc) {
+  const newName = prompt("Nuevo nombre", doc.filename);
+  if (!newName || newName === doc.filename) return;
+  axios
+    .put(`http://localhost:8000/api/files/${doc.id}`, null, {
+      params: { new_name: newName },
+    })
+    .then((res) => {
+      doc.filename = res.data.filename;
+    });
 }
 
 function handleFileUpload(newFile: File | File[]) {
