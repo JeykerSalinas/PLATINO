@@ -1,16 +1,14 @@
 <template>
   <div class="pa-3 d-flex flex-column justify-end fill-height">
     <div>
-      <v-list>
+      <v-list v-if="messages.length">
         <v-list-item v-for="(msg, index) in messages" :key="index">
-          <v-list-item-content>
-            <v-list-item-title class="text-subtitle-1">
-              {{ msg.from }}
-            </v-list-item-title>
-            <v-list-item-subtitle>
-              {{ msg.text }}
-            </v-list-item-subtitle>
-          </v-list-item-content>
+          <v-list-item-title class="text-subtitle-1">
+            {{ msg.from }}
+          </v-list-item-title>
+          <v-list-item-subtitle>
+            {{ msg.text }}
+          </v-list-item-subtitle>
         </v-list-item>
       </v-list>
     </div>
