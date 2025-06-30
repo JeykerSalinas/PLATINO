@@ -7,7 +7,7 @@ import fitz  # PyMuPDF
 from llama_index.readers.file import PyMuPDFReader, PDFReader
 from llama_index.core.node_parser import SimpleNodeParser
 import tempfile
-
+import traceback
 from ...db.session import get_db
 from ...db.models import Document
 
@@ -31,6 +31,7 @@ async def upload_file(
 
         thumb_path = None
         chunks: List[str] = []
+
         if file.filename.lower().endswith(".pdf"):
             # generate thumbnail
             doc_pdf = fitz.open(path)
@@ -41,7 +42,7 @@ async def upload_file(
             doc_pdf.close()
 
             pdf_reader = PDFReader()
-            documents = pdf_reader.load_data(BytesIO(content))
+            documents = pdf_reader.load_data(str(path))  # ✅ aquí el cambio
             parser = SimpleNodeParser.from_defaults()
             nodes = parser.get_nodes_from_documents(documents)
             chunks = [node.text for node in nodes]
@@ -61,7 +62,10 @@ async def upload_file(
             "thumbnail": doc_db.thumbnail,
             "chunks": chunks,
         }
+
     except Exception as e:
+        print("❌ Error en /files:", e)
+        traceback.print_exc()
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/files")
