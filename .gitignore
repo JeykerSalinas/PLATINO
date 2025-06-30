@@ -17,3 +17,4 @@ venv/
 # Front
 node_modules/
 dist/
+platino-backend/uploads/

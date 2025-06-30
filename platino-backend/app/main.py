@@ -1,11 +1,13 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from .api.endpoints import rag
 from .websocket import llm
 from .db.session import engine
 from .db.models import Base
 
 app = FastAPI(title="Platino Backend")
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 
 @app.on_event("startup")
