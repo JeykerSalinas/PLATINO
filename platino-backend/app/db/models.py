@@ -19,6 +19,8 @@ class Document(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     filename = Column(String, unique=True, index=True, nullable=False)
+    filepath = Column(String, nullable=False)
+    thumbnail = Column(String, nullable=True)
     owner_id = Column(Integer, ForeignKey("users.id"))
 
     owner = relationship("User", back_populates="documents")

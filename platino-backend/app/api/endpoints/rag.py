@@ -2,9 +2,9 @@ from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 from sqlalchemy.orm import Session
 from typing import List
 from io import BytesIO
-from llama_index.readers.file import PyMuPDFReader
-from fastapi.middleware.cors import CORSMiddleware
-from llama_index.readers.file import PDFReader
+from pathlib import Path
+import fitz  # PyMuPDF
+from llama_index.readers.file import PyMuPDFReader, PDFReader
 from llama_index.core.node_parser import SimpleNodeParser
 import tempfile
 
@@ -13,32 +13,70 @@ from ...db.models import Document
 
 router = APIRouter()
 
-# In memory storage of uploaded files (name only)
-FILES: List[str] = []
+UPLOAD_DIR = Path("uploads")
+UPLOAD_DIR.mkdir(exist_ok=True)
 
 @router.post("/files")
 async def upload_file(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-    """Upload a file to be used for retrieval."""
+    """Upload a file, store it and generate chunks."""
     try:
         content = await file.read()
-        # placeholder: store content in real vector store
-        FILES.append(file.filename)
-        doc = Document(filename=file.filename)
-        db.add(doc)
+
+        path = UPLOAD_DIR / file.filename
+        with open(path, "wb") as f:
+            f.write(content)
+
+        thumb_path = None
+        chunks: List[str] = []
+        if file.filename.lower().endswith(".pdf"):
+            # generate thumbnail
+            doc_pdf = fitz.open(path)
+            page = doc_pdf.load_page(0)
+            pix = page.get_pixmap()
+            thumb_path = str(UPLOAD_DIR / f"{file.filename}.png")
+            pix.save(thumb_path)
+            doc_pdf.close()
+
+            pdf_reader = PDFReader()
+            documents = pdf_reader.load_data(BytesIO(content))
+            parser = SimpleNodeParser.from_defaults()
+            nodes = parser.get_nodes_from_documents(documents)
+            chunks = [node.text for node in nodes]
+
+        doc_db = Document(
+            filename=file.filename,
+            filepath=str(path),
+            thumbnail=thumb_path,
+        )
+        db.add(doc_db)
         db.commit()
+        db.refresh(doc_db)
+
+        return {
+            "id": doc_db.id,
+            "filename": doc_db.filename,
+            "thumbnail": doc_db.thumbnail,
+            "chunks": chunks,
+        }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
-    return {"filename": file.filename}
 
 @router.get("/files")
 async def list_files(db: Session = Depends(get_db)):
     """List uploaded files."""
     docs = db.query(Document).all()
-    filenames = [doc.filename for doc in docs]
-    return {"files": filenames}
+    files = [
+        {
+            "id": doc.id,
+            "filename": doc.filename,
+            "thumbnail": doc.thumbnail,
+        }
+        for doc in docs
+    ]
+    return {"files": files}
 
 
 @router.post("/split_pdf")

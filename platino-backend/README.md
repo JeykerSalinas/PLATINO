@@ -8,8 +8,27 @@ Este backend usa [FastAPI](https://fastapi.tiangolo.com/) para exponer una API y
 pip install -r requirements.txt
 ```
 
-Por defecto se usa una base de datos SQLite (`platino.db`). Las tablas se
-crean automáticamente cuando se inicia la aplicación.
+Por defecto la configuración usa una base de datos PostgreSQL que se levanta
+mediante Docker. Las tablas se crean automáticamente cuando se inicia la
+aplicación.
+
+### Base de datos con Docker
+
+Desde la raíz del repositorio puedes iniciar la base de datos con:
+
+```bash
+docker compose -f docker-compose.db.yml up -d
+```
+
+El backend se conecta por defecto a `postgresql://postgres:postgres@localhost:5432/platino`.
+Si deseas cambiarlo puedes definir la variable de entorno `DATABASE_URL` antes
+de ejecutar el servidor.
+
+Para detener el contenedor:
+
+```bash
+docker compose -f docker-compose.db.yml down
+```
 
 ## Uso
 
