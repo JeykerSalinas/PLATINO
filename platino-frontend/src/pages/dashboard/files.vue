@@ -59,25 +59,45 @@
         <v-btn icon="mdi-plus" class="ml-2" size="small" @click="addModule" />
       </v-col>
     </v-row>
-    <v-row v-for="mod in modules" :key="mod.id">
-      <v-col cols="12">
-        <div class="d-flex justify-between align-items-center">
-          <div class="text-subtitle-2 mt-4 mb-2" @click="editModule(mod)">
-            {{ mod.title }}
-          </div>
+    <v-row class="mb-3" v-for="mod in modules" :key="mod.id">
+      <v-col cols="12" class="bg-blue-grey-darken-4 rounded">
+        <div class="d-flex justify-between align-center">
+          <v-text-field
+            v-model="mod.title"
+            @input="editModule(mod)"
+          ></v-text-field>
+
           <div class="d-flex align-center ml-auto">
             <v-btn icon="mdi-plus" size="small" @click="addTopic(mod)" />
-            <v-btn icon="mdi-delete" size="small" class="ml-2" @click="removeModule(mod)" />
+            <v-btn
+              icon="mdi-delete"
+              size="small"
+              class="ml-2"
+              @click="removeModule(mod)"
+            />
           </div>
         </div>
-        <v-expansion-panels class="my-4" variant="inset">
-          <v-expansion-panel v-for="topic in mod.topics" :key="topic.id">
+        <v-expansion-panels class="my-4">
+          <v-expansion-panel
+            size="small"
+            v-for="topic in mod.topics"
+            :key="topic.id"
+          >
             <template #title>
               <div class="d-flex align-center justify-between w-100">
                 <span>{{ topic.title }}</span>
                 <div>
-                  <v-btn icon="mdi-pencil" size="small" @click.stop="editTopic(topic)" />
-                  <v-btn icon="mdi-delete" size="small" class="ml-2" @click.stop="removeTopic(mod, topic)" />
+                  <v-btn
+                    icon="mdi-pencil"
+                    size="small"
+                    @click.stop="editTopic(topic)"
+                  />
+                  <v-btn
+                    icon="mdi-delete"
+                    size="small"
+                    class="ml-2"
+                    @click.stop="removeTopic(mod, topic)"
+                  />
                 </div>
               </div>
             </template>
@@ -86,19 +106,33 @@
                 <v-col
                   cols="12"
                   sm="6"
-                  md="3"
-                  v-for="doc in documents.filter((d) => d.topic_id === topic.id)"
+                  md="2"
+                  v-for="doc in documents.filter(
+                    (d) => d.topic_id === topic.id
+                  )"
                   :key="doc.id"
                 >
                   <v-card>
-                    <v-img :src="`http://localhost:8000/${doc.thumbnail}`" height="120" cover />
-                    <v-card-title class="text-wrap">{{ doc.filename }}</v-card-title>
+                    <v-img
+                      :src="`http://localhost:8000/${doc.thumbnail}`"
+                      height="120"
+                    />
+                    <v-card-title class="text-wrap">{{
+                      doc.filename
+                    }}</v-card-title>
                   </v-card>
                 </v-col>
               </v-row>
             </template>
           </v-expansion-panel>
         </v-expansion-panels>
+      </v-col>
+    </v-row>
+    <v-row>
+      <v-col cols="12 text-end">
+        <v-btn color="primary" @click="addModule"
+          ><v-icon>mdi-plus</v-icon> Agregar Módulo
+        </v-btn>
       </v-col>
     </v-row>
   </v-container>
@@ -116,14 +150,21 @@ interface Doc {
 }
 
 const documents = ref<Doc[]>([]);
-interface Topic { id: number; title: string; module_id: number }
-interface Module { id: number; title: string; topics: Topic[] }
+interface Topic {
+  id: number;
+  title: string;
+  module_id: number;
+}
+interface Module {
+  id: number;
+  title: string;
+  topics: Topic[];
+  edit: boolean;
+}
 
 const modules = ref<Module[]>([]);
 const selectedTopicId = ref<number | null>(null);
-const topicsList = computed(() =>
-  modules.value.flatMap((m) => m.topics)
-);
+const topicsList = computed(() => modules.value.flatMap((m) => m.topics));
 
 function loadFiles() {
   axios.get("http://localhost:8000/api/files").then((res) => {
@@ -186,14 +227,15 @@ function addTopic(module: Module) {
 }
 
 function editModule(module: Module) {
-  const title = prompt("Nuevo título", module.title);
-  if (!title || title === module.title) return;
+  // const title = prompt("Nuevo título", module.title);
+
+  if (!module.title) return;
   axios
     .put(`http://localhost:8000/api/modules/${module.id}`, null, {
-      params: { title },
+      params: { title: module.title },
     })
     .then((res) => {
-      module.title = res.data.title;
+      // module.title = res.data.title;
     });
 }
 
@@ -201,7 +243,9 @@ function editTopic(topic: Topic) {
   const title = prompt("Nuevo título", topic.title);
   if (!title || title === topic.title) return;
   axios
-    .put(`http://localhost:8000/api/topics/${topic.id}`, null, { params: { title } })
+    .put(`http://localhost:8000/api/topics/${topic.id}`, null, {
+      params: { title },
+    })
     .then((res) => {
       topic.title = res.data.title;
     });
@@ -212,7 +256,9 @@ function removeModule(module: Module) {
   axios.delete(`http://localhost:8000/api/modules/${module.id}`).then(() => {
     modules.value = modules.value.filter((m) => m.id !== module.id);
     const topicIds = module.topics.map((t) => t.id);
-    documents.value = documents.value.filter((d) => !topicIds.includes(d.topic_id ?? -1));
+    documents.value = documents.value.filter(
+      (d) => !topicIds.includes(d.topic_id ?? -1)
+    );
   });
 }
 

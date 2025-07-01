@@ -11,7 +11,9 @@
           </v-list-item-subtitle>
         </v-list-item>
       </v-list>
+      <spinner />
     </div>
+    <div></div>
     <div class="mt-3">
       <!-- Input de PDF oculto -->
       <input
@@ -33,7 +35,6 @@
         @drop.prevent="onDrop"
       />
     </div>
-    <!-- Mensajes -->
   </div>
 </template>
 
@@ -41,6 +42,7 @@
 import { computed, onMounted, ref } from "vue";
 import { useOllamaStore } from "@/stores/ollama";
 import axios from "axios";
+import spinner from "@/components/ui/spinner.vue";
 
 const store = useOllamaStore();
 const input = ref("");
