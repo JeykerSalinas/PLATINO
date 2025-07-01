@@ -65,14 +65,20 @@
           <div class="text-subtitle-2 mt-4 mb-2" @click="editModule(mod)">
             {{ mod.title }}
           </div>
-          <v-btn icon="mdi-plus" class="ml-auto" size="small" @click="addTopic(mod)" />
+          <div class="d-flex align-center ml-auto">
+            <v-btn icon="mdi-plus" size="small" @click="addTopic(mod)" />
+            <v-btn icon="mdi-delete" size="small" class="ml-2" @click="removeModule(mod)" />
+          </div>
         </div>
         <v-expansion-panels class="my-4" variant="inset">
           <v-expansion-panel v-for="topic in mod.topics" :key="topic.id">
             <template #title>
               <div class="d-flex align-center justify-between w-100">
                 <span>{{ topic.title }}</span>
-                <v-btn icon="mdi-pencil" size="small" @click.stop="editTopic(topic)" />
+                <div>
+                  <v-btn icon="mdi-pencil" size="small" @click.stop="editTopic(topic)" />
+                  <v-btn icon="mdi-delete" size="small" class="ml-2" @click.stop="removeTopic(mod, topic)" />
+                </div>
               </div>
             </template>
             <template #text>
@@ -199,6 +205,23 @@ function editTopic(topic: Topic) {
     .then((res) => {
       topic.title = res.data.title;
     });
+}
+
+function removeModule(module: Module) {
+  if (!confirm("¿Eliminar módulo y sus temarios?")) return;
+  axios.delete(`http://localhost:8000/api/modules/${module.id}`).then(() => {
+    modules.value = modules.value.filter((m) => m.id !== module.id);
+    const topicIds = module.topics.map((t) => t.id);
+    documents.value = documents.value.filter((d) => !topicIds.includes(d.topic_id ?? -1));
+  });
+}
+
+function removeTopic(module: Module, topic: Topic) {
+  if (!confirm("¿Eliminar temario?")) return;
+  axios.delete(`http://localhost:8000/api/topics/${topic.id}`).then(() => {
+    module.topics = module.topics.filter((t) => t.id !== topic.id);
+    documents.value = documents.value.filter((d) => d.topic_id !== topic.id);
+  });
 }
 
 function rename(doc: Doc) {

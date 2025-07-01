@@ -28,6 +28,16 @@ def update_module(module_id: int, title: str, db: Session = Depends(get_db)):
     db.refresh(module)
     return {"id": module.id, "title": module.title}
 
+
+@router.delete("/modules/{module_id}")
+def delete_module(module_id: int, db: Session = Depends(get_db)):
+    module = db.query(Module).get(module_id)
+    if not module:
+        raise HTTPException(status_code=404, detail="Module not found")
+    db.delete(module)
+    db.commit()
+    return {"status": "deleted"}
+
 @router.post("/modules/{module_id}/topics")
 def create_topic(module_id: int, title: str, db: Session = Depends(get_db)):
     module = db.query(Module).get(module_id)
@@ -57,3 +67,13 @@ def update_topic(topic_id: int, title: str, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(topic)
     return {"id": topic.id, "title": topic.title, "module_id": topic.module_id}
+
+
+@router.delete("/topics/{topic_id}")
+def delete_topic(topic_id: int, db: Session = Depends(get_db)):
+    topic = db.query(Topic).get(topic_id)
+    if not topic:
+        raise HTTPException(status_code=404, detail="Topic not found")
+    db.delete(topic)
+    db.commit()
+    return {"status": "deleted"}
