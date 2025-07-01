@@ -22,11 +22,21 @@
               :key="doc.id"
             >
               <v-card>
-                <v-img :src="doc.thumbnail" height="120" cover />
-                <v-card-title class="text-wrap">{{ doc.filename }}</v-card-title>
+                <v-img
+                  :src="`http://localhost:8000/${doc.thumbnail}`"
+                  height="120"
+                  cover
+                />
+                <v-card-title class="text-wrap">{{
+                  doc.filename
+                }}</v-card-title>
                 <v-card-actions>
                   <v-btn icon="mdi-pencil" @click="rename(doc)" size="small" />
-                  <v-btn icon="mdi-delete" @click="remove(doc.id)" size="small" />
+                  <v-btn
+                    icon="mdi-delete"
+                    @click="remove(doc.id)"
+                    size="small"
+                  />
                 </v-card-actions>
               </v-card>
             </v-col>

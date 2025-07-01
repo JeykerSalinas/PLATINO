@@ -42,6 +42,11 @@ const drawerItems = ref([
     icon: "mdi-home",
   },
   {
+    title: "Chat",
+    to: "/dashboard/chat",
+    icon: "mdi-chat",
+  },
+  {
     title: "Documentos",
     to: "/dashboard/files",
     icon: "mdi-folder",

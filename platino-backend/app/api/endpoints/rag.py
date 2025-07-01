@@ -40,8 +40,8 @@ async def upload_file(
             metadata["pages"] = doc_pdf.page_count
             page = doc_pdf.load_page(0)
             pix = page.get_pixmap()
-            thumb_path = str(UPLOAD_DIR / f"{file.filename}.png")
-            pix.save(thumb_path)
+            thumb_path = f"uploads/{file.filename}.png"  # ✅ guarda esto en la base de datos
+            pix.save(UPLOAD_DIR / f"{file.filename}.png")  # ✅ guarda en disco con Path    
             doc_pdf.close()
 
             pdf_reader = PDFReader()
