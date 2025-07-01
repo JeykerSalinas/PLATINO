@@ -47,17 +47,57 @@
     </v-row>
     <v-row>
       <v-col cols="12">
+        <v-select
+          label="Asignar a temario"
+          :items="topicsList"
+          item-title="title"
+          item-value="id"
+          v-model="selectedTopicId"
+          clearable
+          class="mb-4"
+        />
+        <v-btn icon="mdi-plus" class="ml-2" size="small" @click="addModule" />
+      </v-col>
+    </v-row>
+    <v-row v-for="mod in modules" :key="mod.id">
+      <v-col cols="12">
         <div class="d-flex justify-between align-items-center">
-          <div class="text-subtitle-2 mt-4 mb-2">Modulo 1</div>
-          <v-btn icon="mdi-plus" class="ml-auto" size="small"></v-btn>
+          <div class="text-subtitle-2 mt-4 mb-2" @click="editModule(mod)">
+            {{ mod.title }}
+          </div>
+          <div class="d-flex align-center ml-auto">
+            <v-btn icon="mdi-plus" size="small" @click="addTopic(mod)" />
+            <v-btn icon="mdi-delete" size="small" class="ml-2" @click="removeModule(mod)" />
+          </div>
         </div>
         <v-expansion-panels class="my-4" variant="inset">
-          <v-expansion-panel
-            v-for="i in 3"
-            :key="i"
-            text="Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat."
-            :title="'Tema' + ' ' + i"
-          ></v-expansion-panel>
+          <v-expansion-panel v-for="topic in mod.topics" :key="topic.id">
+            <template #title>
+              <div class="d-flex align-center justify-between w-100">
+                <span>{{ topic.title }}</span>
+                <div>
+                  <v-btn icon="mdi-pencil" size="small" @click.stop="editTopic(topic)" />
+                  <v-btn icon="mdi-delete" size="small" class="ml-2" @click.stop="removeTopic(mod, topic)" />
+                </div>
+              </div>
+            </template>
+            <template #text>
+              <v-row>
+                <v-col
+                  cols="12"
+                  sm="6"
+                  md="3"
+                  v-for="doc in documents.filter((d) => d.topic_id === topic.id)"
+                  :key="doc.id"
+                >
+                  <v-card>
+                    <v-img :src="`http://localhost:8000/${doc.thumbnail}`" height="120" cover />
+                    <v-card-title class="text-wrap">{{ doc.filename }}</v-card-title>
+                  </v-card>
+                </v-col>
+              </v-row>
+            </template>
+          </v-expansion-panel>
         </v-expansion-panels>
       </v-col>
     </v-row>
@@ -65,16 +105,25 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+import { ref, onMounted, computed } from "vue";
 import axios from "axios";
 
 interface Doc {
   id: number;
   filename: string;
   thumbnail: string | null;
+  topic_id: number | null;
 }
 
 const documents = ref<Doc[]>([]);
+interface Topic { id: number; title: string; module_id: number }
+interface Module { id: number; title: string; topics: Topic[] }
+
+const modules = ref<Module[]>([]);
+const selectedTopicId = ref<number | null>(null);
+const topicsList = computed(() =>
+  modules.value.flatMap((m) => m.topics)
+);
 
 function loadFiles() {
   axios.get("http://localhost:8000/api/files").then((res) => {
@@ -82,17 +131,96 @@ function loadFiles() {
   });
 }
 
+function loadModules() {
+  axios.get("http://localhost:8000/api/modules").then((res) => {
+    modules.value = res.data.modules.map((m: any) => ({ ...m, topics: [] }));
+    modules.value.forEach((m) => {
+      axios
+        .get(`http://localhost:8000/api/modules/${m.id}/topics`)
+        .then((r) => {
+          const mod = modules.value.find((mm) => mm.id === m.id);
+          if (mod) mod.topics = r.data.topics;
+        });
+    });
+  });
+}
+
 function upload(file: File) {
   const formData = new FormData();
   formData.append("file", file);
-  axios.post("http://localhost:8000/api/files", formData).then((res) => {
-    documents.value.push(res.data);
-  });
+  axios
+    .post("http://localhost:8000/api/files", formData, {
+      params: { topic_id: selectedTopicId.value },
+    })
+    .then((res) => {
+      documents.value.push(res.data);
+    });
 }
 
 function remove(id: number) {
   axios.delete(`http://localhost:8000/api/files/${id}`).then(() => {
     documents.value = documents.value.filter((d) => d.id !== id);
+  });
+}
+
+function addModule() {
+  const title = prompt("Nombre del módulo");
+  if (!title) return;
+  axios
+    .post("http://localhost:8000/api/modules", null, { params: { title } })
+    .then((res) => {
+      modules.value.push({ ...res.data, topics: [] });
+    });
+}
+
+function addTopic(module: Module) {
+  const title = prompt("Nombre del temario");
+  if (!title) return;
+  axios
+    .post(`http://localhost:8000/api/modules/${module.id}/topics`, null, {
+      params: { title },
+    })
+    .then((res) => {
+      module.topics.push(res.data);
+    });
+}
+
+function editModule(module: Module) {
+  const title = prompt("Nuevo título", module.title);
+  if (!title || title === module.title) return;
+  axios
+    .put(`http://localhost:8000/api/modules/${module.id}`, null, {
+      params: { title },
+    })
+    .then((res) => {
+      module.title = res.data.title;
+    });
+}
+
+function editTopic(topic: Topic) {
+  const title = prompt("Nuevo título", topic.title);
+  if (!title || title === topic.title) return;
+  axios
+    .put(`http://localhost:8000/api/topics/${topic.id}`, null, { params: { title } })
+    .then((res) => {
+      topic.title = res.data.title;
+    });
+}
+
+function removeModule(module: Module) {
+  if (!confirm("¿Eliminar módulo y sus temarios?")) return;
+  axios.delete(`http://localhost:8000/api/modules/${module.id}`).then(() => {
+    modules.value = modules.value.filter((m) => m.id !== module.id);
+    const topicIds = module.topics.map((t) => t.id);
+    documents.value = documents.value.filter((d) => !topicIds.includes(d.topic_id ?? -1));
+  });
+}
+
+function removeTopic(module: Module, topic: Topic) {
+  if (!confirm("¿Eliminar temario?")) return;
+  axios.delete(`http://localhost:8000/api/topics/${topic.id}`).then(() => {
+    module.topics = module.topics.filter((t) => t.id !== topic.id);
+    documents.value = documents.value.filter((d) => d.topic_id !== topic.id);
   });
 }
 
@@ -121,5 +249,8 @@ function onDrop(e: DragEvent) {
   }
 }
 
-onMounted(loadFiles);
+onMounted(() => {
+  loadFiles();
+  loadModules();
+});
 </script>

@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from .api.endpoints import rag
+from .api.endpoints import rag, modules
 from .websocket import llm
 from .db.session import engine
 from .db.models import Base
@@ -25,6 +25,7 @@ app.add_middleware(
 )
 
 app.include_router(rag.router, prefix="/api")
+app.include_router(modules.router, prefix="/api")
 app.include_router(llm.router)
 
 @app.get("/")
