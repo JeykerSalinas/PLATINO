@@ -54,7 +54,7 @@ async def upload_file(
             filename=file.filename,
             filepath=str(path),
             thumbnail=thumb_path,
-            metadata=metadata,
+            file_metadata=metadata,
             chunks=chunks,
         )
         db.add(doc_db)
@@ -126,10 +126,10 @@ async def rename_file(doc_id: int, new_name: str, db: Session = Depends(get_db))
         doc.thumbnail = str(new_thumb)
 
     doc.filename = new_name
-    meta = doc.metadata or {}
+    meta = doc.file_metadata or {}
     meta["filename"] = new_name
     meta["source"] = str(new_path)
-    doc.metadata = meta
+    doc.file_metadata = meta
 
     db.commit()
     db.refresh(doc)
