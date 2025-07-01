@@ -10,7 +10,7 @@ from llama_index.core.node_parser import SimpleNodeParser
 import tempfile
 import traceback
 from ...db.session import get_db
-from ...db.models import Document
+from ...db.models import Document, Topic
 
 router = APIRouter()
 
@@ -21,6 +21,7 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 async def upload_file(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
+    topic_id: int | None = None,
 ):
     """Upload a file, store it and generate chunks."""
     try:
@@ -50,12 +51,18 @@ async def upload_file(
             nodes = parser.get_nodes_from_documents(documents)
             chunks = [node.text for node in nodes]
 
+        if topic_id is not None:
+            topic = db.query(Topic).get(topic_id)
+            if not topic:
+                raise HTTPException(status_code=404, detail="Topic not found")
+
         doc_db = Document(
             filename=file.filename,
             filepath=str(path),
             thumbnail=thumb_path,
             file_metadata=metadata,
             chunks=chunks,
+            topic_id=topic_id,
         )
         db.add(doc_db)
         db.commit()
@@ -67,6 +74,7 @@ async def upload_file(
             "thumbnail": doc_db.thumbnail,
             "chunks": chunks,
             "metadata": metadata,
+            "topic_id": doc_db.topic_id,
         }
 
     except Exception as e:
@@ -83,6 +91,7 @@ async def list_files(db: Session = Depends(get_db)):
             "id": doc.id,
             "filename": doc.filename,
             "thumbnail": doc.thumbnail,
+            "topic_id": doc.topic_id,
         }
         for doc in docs
     ]
@@ -137,7 +146,25 @@ async def rename_file(doc_id: int, new_name: str, db: Session = Depends(get_db))
         "id": doc.id,
         "filename": doc.filename,
         "thumbnail": doc.thumbnail,
+        "topic_id": doc.topic_id,
     }
+
+
+@router.put("/files/{doc_id}/topic")
+async def set_file_topic(doc_id: int, topic_id: int | None, db: Session = Depends(get_db)):
+    doc = db.query(Document).get(doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    if topic_id is not None:
+        topic = db.query(Topic).get(topic_id)
+        if not topic:
+            raise HTTPException(status_code=404, detail="Topic not found")
+
+    doc.topic_id = topic_id
+    db.commit()
+    db.refresh(doc)
+    return {"id": doc.id, "topic_id": doc.topic_id}
 
 
 @router.post("/split_pdf")
