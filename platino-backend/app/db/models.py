@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey
+from sqlalchemy import Column, Integer, String, ForeignKey, JSON
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
@@ -21,6 +21,10 @@ class Document(Base):
     filename = Column(String, unique=True, index=True, nullable=False)
     filepath = Column(String, nullable=False)
     thumbnail = Column(String, nullable=True)
+    # "metadata" is reserved by SQLAlchemy's declarative system, so use a
+    # different attribute name while keeping the same column name in the DB.
+    file_metadata = Column("metadata", JSON, nullable=True)
+    chunks = Column(JSON, nullable=True)
     owner_id = Column(Integer, ForeignKey("users.id"))
 
     owner = relationship("User", back_populates="documents")

@@ -1,4 +1,5 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
+import os
 from sqlalchemy.orm import Session
 from typing import List
 from io import BytesIO
@@ -31,10 +32,12 @@ async def upload_file(
 
         thumb_path = None
         chunks: List[str] = []
+        metadata = {"filename": file.filename, "source": str(path)}
 
         if file.filename.lower().endswith(".pdf"):
             # generate thumbnail
             doc_pdf = fitz.open(path)
+            metadata["pages"] = doc_pdf.page_count
             page = doc_pdf.load_page(0)
             pix = page.get_pixmap()
             thumb_path = str(UPLOAD_DIR / f"{file.filename}.png")
@@ -51,6 +54,8 @@ async def upload_file(
             filename=file.filename,
             filepath=str(path),
             thumbnail=thumb_path,
+            file_metadata=metadata,
+            chunks=chunks,
         )
         db.add(doc_db)
         db.commit()
@@ -61,6 +66,7 @@ async def upload_file(
             "filename": doc_db.filename,
             "thumbnail": doc_db.thumbnail,
             "chunks": chunks,
+            "metadata": metadata,
         }
 
     except Exception as e:
@@ -81,6 +87,57 @@ async def list_files(db: Session = Depends(get_db)):
         for doc in docs
     ]
     return {"files": files}
+
+
+@router.delete("/files/{doc_id}")
+async def delete_file(doc_id: int, db: Session = Depends(get_db)):
+    """Delete a document and its files."""
+    doc = db.query(Document).get(doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    if os.path.exists(doc.filepath):
+        os.remove(doc.filepath)
+    if doc.thumbnail and os.path.exists(doc.thumbnail):
+        os.remove(doc.thumbnail)
+
+    db.delete(doc)
+    db.commit()
+    return {"status": "deleted"}
+
+
+@router.put("/files/{doc_id}")
+async def rename_file(doc_id: int, new_name: str, db: Session = Depends(get_db)):
+    """Rename a stored document."""
+    doc = db.query(Document).get(doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    new_path = UPLOAD_DIR / new_name
+    if new_path.exists():
+        raise HTTPException(status_code=400, detail="Filename already exists")
+
+    os.rename(doc.filepath, new_path)
+    doc.filepath = str(new_path)
+    if doc.thumbnail:
+        thumb_ext = Path(doc.thumbnail).suffix
+        new_thumb = UPLOAD_DIR / f"{new_name}{thumb_ext}"
+        os.rename(doc.thumbnail, new_thumb)
+        doc.thumbnail = str(new_thumb)
+
+    doc.filename = new_name
+    meta = doc.file_metadata or {}
+    meta["filename"] = new_name
+    meta["source"] = str(new_path)
+    doc.file_metadata = meta
+
+    db.commit()
+    db.refresh(doc)
+    return {
+        "id": doc.id,
+        "filename": doc.filename,
+        "thumbnail": doc.thumbnail,
+    }
 
 
 @router.post("/split_pdf")
