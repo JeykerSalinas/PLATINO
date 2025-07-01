@@ -45,6 +45,22 @@
         </v-card>
       </v-col>
     </v-row>
+    <v-row>
+      <v-col cols="12">
+        <div class="d-flex justify-between align-items-center">
+          <div class="text-subtitle-2 mt-4 mb-2">Modulo 1</div>
+          <v-btn icon="mdi-plus" class="ml-auto" size="small"></v-btn>
+        </div>
+        <v-expansion-panels class="my-4" variant="inset">
+          <v-expansion-panel
+            v-for="i in 3"
+            :key="i"
+            text="Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat."
+            :title="'Tema' + ' ' + i"
+          ></v-expansion-panel>
+        </v-expansion-panels>
+      </v-col>
+    </v-row>
   </v-container>
 </template>
 
