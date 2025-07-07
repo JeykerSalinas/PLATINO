@@ -5,6 +5,8 @@ services:
   ollama:
     image: ollama/ollama
     container_name: ollama-platino
+    command: >
+      sh -c "ollama pull llama3 && ollama serve"
     ports:
       - "11434:11434"
     volumes:
@@ -27,6 +29,7 @@ services:
   backend:
     build:
       context: ./platino-backend
+      dockerfile: dockerfile
     container_name: platino-backend
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
@@ -42,6 +45,7 @@ services:
   frontend:
     build:
       context: ./platino-frontend
+      dockerfile: dockerfile
     container_name: platino-frontend
     command: npm run dev -- --host
     volumes:
