@@ -121,11 +121,21 @@
                   )"
                   :key="doc.id"
                 >
-                  <v-card>
-                    <v-img
-                      :src="`http://localhost:8000/${doc.thumbnail}`"
-                      height="120"
-                    />
+                  <v-card @click="viewDocument(doc)" class="cursor-pointer">
+                    <template v-if="doc.thumbnail">
+                      <v-img
+                        :src="`http://localhost:8000/${doc.thumbnail}`"
+                        height="120"
+                      />
+                    </template>
+                    <template v-else>
+                      <div
+                        class="d-flex align-center justify-center"
+                        style="height: 120px"
+                      >
+                        <v-icon size="64">mdi-file-word</v-icon>
+                      </div>
+                    </template>
                     <v-card-title class="text-wrap">{{
                       doc.filename
                     }}</v-card-title>
@@ -145,6 +155,56 @@
       </v-col>
     </v-row>
   </v-container>
+
+  <v-dialog v-model="dialog" max-width="1200">
+    <v-card v-if="selectedDoc">
+      <v-card-title class="d-flex justify-space-between">
+        {{ selectedDoc.filename }}
+        <div>
+          <v-btn
+            icon="mdi-download"
+            :href="`http://localhost:8000/${selectedDoc.filepath}`"
+            download
+            class="mr-2"
+          />
+          <v-btn icon="mdi-close" @click="dialog = false" />
+        </div>
+      </v-card-title>
+      <v-card-text>
+        <v-row>
+          <v-col cols="12" md="6">
+            <iframe
+              v-if="isPdf(selectedDoc.filename)"
+              :src="`http://localhost:8000/${selectedDoc.filepath}`"
+              style="width: 100%; height: 75vh"
+            ></iframe>
+            <div
+              v-else
+              class="d-flex align-center justify-center"
+              style="height: 75vh"
+            >
+              <v-icon size="64">mdi-file-word</v-icon>
+            </div>
+          </v-col>
+          <v-col cols="12" md="6" style="max-height: 75vh; overflow-y: auto">
+            <template v-if="isPdf(selectedDoc.filename)">
+              <v-list>
+                <v-list-item
+                  v-for="(chunk, idx) in selectedDoc.chunks"
+                  :key="idx"
+                >
+                  <v-list-item-subtitle>{{ chunk }}</v-list-item-subtitle>
+                </v-list-item>
+              </v-list>
+            </template>
+            <div v-else class="text-center mt-4">
+              No se puede mostrar previsualización de este archivo
+            </div>
+          </v-col>
+        </v-row>
+      </v-card-text>
+    </v-card>
+  </v-dialog>
 </template>
 
 <script setup lang="ts">
@@ -158,7 +218,18 @@ interface Doc {
   topic_id: number | null;
 }
 
+interface DocDetail extends Doc {
+  filepath: string;
+  metadata: any;
+  chunks: string[];
+}
+
 const documents = ref<Doc[]>([]);
+const selectedDoc = ref<DocDetail | null>(null);
+const dialog = ref(false);
+function isPdf(name: string) {
+  return name.toLowerCase().endsWith('.pdf');
+}
 interface Topic {
   id: number;
   title: string;
@@ -276,6 +347,13 @@ function removeTopic(module: Module, topic: Topic) {
   axios.delete(`http://localhost:8000/api/topics/${topic.id}`).then(() => {
     module.topics = module.topics.filter((t) => t.id !== topic.id);
     documents.value = documents.value.filter((d) => d.topic_id !== topic.id);
+  });
+}
+
+function viewDocument(doc: Doc) {
+  axios.get(`http://localhost:8000/api/files/${doc.id}`).then((res) => {
+    selectedDoc.value = res.data;
+    dialog.value = true;
   });
 }
 

@@ -98,6 +98,24 @@ async def list_files(db: Session = Depends(get_db)):
     return {"files": files}
 
 
+@router.get("/files/{doc_id}")
+async def get_file(doc_id: int, db: Session = Depends(get_db)):
+    """Return detailed information for a single document."""
+    doc = db.query(Document).get(doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    return {
+        "id": doc.id,
+        "filename": doc.filename,
+        "filepath": doc.filepath,
+        "thumbnail": doc.thumbnail,
+        "metadata": doc.file_metadata,
+        "chunks": doc.chunks,
+        "topic_id": doc.topic_id,
+    }
+
+
 @router.delete("/files/{doc_id}")
 async def delete_file(doc_id: int, db: Session = Depends(get_db)):
     """Delete a document and its files."""
