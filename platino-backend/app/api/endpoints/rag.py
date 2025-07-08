@@ -7,6 +7,7 @@ from pathlib import Path
 import fitz  # PyMuPDF
 from llama_index.readers.file import PyMuPDFReader, PDFReader
 from llama_index.core.node_parser import SimpleNodeParser
+from ...core.rag_engine import insert_nodes
 import tempfile
 import traceback
 from ...db.session import get_db
@@ -16,6 +17,7 @@ router = APIRouter()
 
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
+
 
 @router.post("/files")
 async def upload_file(
@@ -41,8 +43,10 @@ async def upload_file(
             metadata["pages"] = doc_pdf.page_count
             page = doc_pdf.load_page(0)
             pix = page.get_pixmap()
-            thumb_path = f"uploads/{file.filename}.png"  # ✅ guarda esto en la base de datos
-            pix.save(UPLOAD_DIR / f"{file.filename}.png")  # ✅ guarda en disco con Path    
+            thumb_path = (
+                f"uploads/{file.filename}.png"  # ✅ guarda esto en la base de datos
+            )
+            pix.save(UPLOAD_DIR / f"{file.filename}.png")  # ✅ guarda en disco con Path
             doc_pdf.close()
 
             pdf_reader = PDFReader()
@@ -50,6 +54,7 @@ async def upload_file(
             parser = SimpleNodeParser.from_defaults()
             nodes = parser.get_nodes_from_documents(documents)
             chunks = [node.text for node in nodes]
+            insert_nodes(nodes)
 
         if topic_id is not None:
             topic = db.query(Topic).get(topic_id)
@@ -81,6 +86,7 @@ async def upload_file(
         print("❌ Error en /files:", e)
         traceback.print_exc()
         raise HTTPException(status_code=400, detail=str(e))
+
 
 @router.get("/files")
 async def list_files(db: Session = Depends(get_db)):
@@ -169,7 +175,9 @@ async def rename_file(doc_id: int, new_name: str, db: Session = Depends(get_db))
 
 
 @router.put("/files/{doc_id}/topic")
-async def set_file_topic(doc_id: int, topic_id: int | None, db: Session = Depends(get_db)):
+async def set_file_topic(
+    doc_id: int, topic_id: int | None, db: Session = Depends(get_db)
+):
     doc = db.query(Document).get(doc_id)
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
