@@ -84,7 +84,7 @@ async function uploadPdf(file: File) {
 }
 
 onMounted(async () => {
-  store.connect();
+  // No WebSocket connection needed
 });
 
 // function send() {
@@ -155,15 +155,13 @@ const sendMessageToOllamaStream = async (
   prompt: string,
   onChunk: (text: string) => void
 ) => {
-  const response = await fetch("http://localhost:11434/api/generate", {
+  const response = await fetch("http://localhost:8000/api/chat/stream", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "llama3",
       prompt,
-      stream: true,
     }),
   });
 
