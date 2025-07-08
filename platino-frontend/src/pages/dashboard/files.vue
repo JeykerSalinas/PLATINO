@@ -121,7 +121,7 @@
                   )"
                   :key="doc.id"
                 >
-                  <v-card>
+                  <v-card @click="viewDocument(doc)" class="cursor-pointer">
                     <v-img
                       :src="`http://localhost:8000/${doc.thumbnail}`"
                       height="120"
@@ -145,6 +145,35 @@
       </v-col>
     </v-row>
   </v-container>
+
+  <v-dialog v-model="dialog" max-width="1200">
+    <v-card v-if="selectedDoc">
+      <v-card-title class="d-flex justify-space-between">
+        {{ selectedDoc.filename }}
+        <v-btn icon="mdi-close" @click="dialog = false" />
+      </v-card-title>
+      <v-card-text>
+        <v-row>
+          <v-col cols="12" md="6">
+            <iframe
+              :src="`http://localhost:8000/${selectedDoc.filepath}`"
+              style="width: 100%; height: 75vh"
+            ></iframe>
+          </v-col>
+          <v-col cols="12" md="6" style="max-height: 75vh; overflow-y: auto">
+            <v-list>
+              <v-list-item
+                v-for="(chunk, idx) in selectedDoc.chunks"
+                :key="idx"
+              >
+                <v-list-item-subtitle>{{ chunk }}</v-list-item-subtitle>
+              </v-list-item>
+            </v-list>
+          </v-col>
+        </v-row>
+      </v-card-text>
+    </v-card>
+  </v-dialog>
 </template>
 
 <script setup lang="ts">
@@ -158,7 +187,15 @@ interface Doc {
   topic_id: number | null;
 }
 
+interface DocDetail extends Doc {
+  filepath: string;
+  metadata: any;
+  chunks: string[];
+}
+
 const documents = ref<Doc[]>([]);
+const selectedDoc = ref<DocDetail | null>(null);
+const dialog = ref(false);
 interface Topic {
   id: number;
   title: string;
@@ -276,6 +313,13 @@ function removeTopic(module: Module, topic: Topic) {
   axios.delete(`http://localhost:8000/api/topics/${topic.id}`).then(() => {
     module.topics = module.topics.filter((t) => t.id !== topic.id);
     documents.value = documents.value.filter((d) => d.topic_id !== topic.id);
+  });
+}
+
+function viewDocument(doc: Doc) {
+  axios.get(`http://localhost:8000/api/files/${doc.id}`).then((res) => {
+    selectedDoc.value = res.data;
+    dialog.value = true;
   });
 }
 
