@@ -2,8 +2,8 @@ from pathlib import Path
 from llama_index.core import (
     VectorStoreIndex,
     StorageContext,
-    ServiceContext,
     load_index_from_storage,
+    Settings,
 )
 from llama_index.vector_stores.chroma import ChromaVectorStore
 from llama_index.embeddings.ollama import OllamaEmbedding
@@ -13,10 +13,11 @@ from llama_index.llms.ollama import Ollama
 PERSIST_DIR = Path("chroma_db")
 COLLECTION_NAME = "documents"
 
-# Initialize embed model and LLM for the service context
+# Initialize embed model and LLM and register them in the global settings
 _embed_model = OllamaEmbedding(model_name="nomic-embed-text")
 _llm = Ollama(model="llama3")
-_service_context = ServiceContext.from_defaults(llm=_llm, embed_model=_embed_model)
+Settings.embed_model = _embed_model
+Settings.llm = _llm
 
 _vector_store = ChromaVectorStore(
     persist_dir=str(PERSIST_DIR), collection_name=COLLECTION_NAME
@@ -25,11 +26,9 @@ _storage_context = StorageContext.from_defaults(vector_store=_vector_store)
 
 # Load an existing index if present, otherwise create a new one
 if PERSIST_DIR.exists():
-    _index = load_index_from_storage(_storage_context, service_context=_service_context)
+    _index = load_index_from_storage(_storage_context)
 else:
-    _index = VectorStoreIndex(
-        [], service_context=_service_context, storage_context=_storage_context
-    )
+    _index = VectorStoreIndex([], storage_context=_storage_context)
     _index.storage_context.persist()
 
 
