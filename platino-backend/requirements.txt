@@ -8,3 +8,5 @@ python-dotenv>=1.1.1
 llama-index>=0.10.0
 psycopg2-binary
 PyMuPDF
+openai
+httpx
