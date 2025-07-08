@@ -1,18 +1,8 @@
 <template>
   <v-container fluid>
-    <v-row>
-      <!-- <v-col cols="12">
+    <!-- <v-row>
+      <v-col cols="12">
         <v-card class="pa-4" @dragover.prevent @drop.prevent="onDrop">
-          <h3 class="text-h6 mb-4">
-            Arrastra archivos aquí o haz click para subir
-          </h3>
-          <v-file-input
-            label="Sube un archivo"
-            @update:modelValue="handleFileUpload"
-            prepend-icon="mdi-upload"
-            show-size
-          />
-
           <v-row class="mt-4" v-if="documents.length">
             <v-col
               cols="12"
@@ -43,22 +33,9 @@
           </v-row>
           <div v-else class="text-medium-emphasis">No hay archivos aún</div>
         </v-card>
-      </v-col> -->
-    </v-row>
-    <!-- <v-row>
-      <v-col cols="12">
-        <v-select
-          label="Asignar a temario"
-          :items="topicsList"
-          item-title="title"
-          item-value="id"
-          v-model="selectedTopicId"
-          clearable
-          class="mb-4"
-        />
       </v-col>
-      <v-btn icon="mdi-plus" class="ml-2" size="small" @click="addModule" />
     </v-row> -->
+
     <v-row class="mb-3" v-for="mod in modules" :key="mod.id">
       <v-col cols="12" class="bg-blue-grey-darken-4 rounded">
         <div class="d-flex align-center">
@@ -77,9 +54,9 @@
 
             <v-list>
               <v-list-item @click="addTopic(mod)">
-                <v-list-item-title
-                  >Agregar Tema <v-icon>mdi-plus</v-icon></v-list-item-title
-                >
+                <v-list-item-title>
+                  Agregar Tema <v-icon>mdi-plus</v-icon>
+                </v-list-item-title>
               </v-list-item>
               <v-list-item @click="removeModule(mod)">
                 <v-list-item-title
@@ -91,7 +68,11 @@
           </v-menu>
         </div>
         <v-expansion-panels class="my-4">
-          <v-expansion-panel class="" v-for="topic in mod.topics" :key="topic.id">
+          <v-expansion-panel
+            class=""
+            v-for="topic in mod.topics"
+            :key="topic.id"
+          >
             <template #title>
               <div class="d-flex align-center justify-between w-100">
                 <span>{{ topic.title }}</span>
@@ -141,6 +122,37 @@
                     }}</v-card-title>
                   </v-card>
                 </v-col>
+                <v-col cols="12" sm="6" md="2">
+                  <v-card
+                    class="cursor-pointer"
+                    @dragover.prevent
+                    @drop.prevent="onDrop($event, topic.id)"
+                  >
+                    <div
+                      class="d-flex align-center justify-center"
+                      style="height: 120px"
+                      @click="triggerFileInput"
+                    >
+                      <v-icon size="64">mdi-plus</v-icon>
+                    </div>
+
+                    <v-card-title class="text-wrap">
+                      <v-file-input
+                        label=""
+                        @update:modelValue="handleFileUpload($event, topic.id)"
+                        show-size
+                        variant="plain"
+                        preppend-icon=""
+                    /></v-card-title>
+                    <!-- <input
+                      type="file"
+                      ref="fileInput"
+                      class="d-none"
+                      @change="handleFileChange"
+                      accept=".pdf,.doc,.docx"
+                    /> -->
+                  </v-card>
+                </v-col>
               </v-row>
             </template>
           </v-expansion-panel>
@@ -187,19 +199,14 @@
             </div>
           </v-col>
           <v-col cols="12" md="6" style="max-height: 75vh; overflow-y: auto">
-            <template v-if="isPdf(selectedDoc.filename)">
-              <v-list>
-                <v-list-item
-                  v-for="(chunk, idx) in selectedDoc.chunks"
-                  :key="idx"
-                >
-                  <v-list-item-subtitle>{{ chunk }}</v-list-item-subtitle>
-                </v-list-item>
-              </v-list>
-            </template>
-            <div v-else class="text-center mt-4">
-              No se puede mostrar previsualización de este archivo
-            </div>
+            <v-list>
+              <v-list-item
+                v-for="(chunk, idx) in selectedDoc.chunks"
+                :key="idx"
+              >
+                <v-list-item-subtitle>{{ chunk }}</v-list-item-subtitle>
+              </v-list-item>
+            </v-list>
           </v-col>
         </v-row>
       </v-card-text>
@@ -228,7 +235,7 @@ const documents = ref<Doc[]>([]);
 const selectedDoc = ref<DocDetail | null>(null);
 const dialog = ref(false);
 function isPdf(name: string) {
-  return name.toLowerCase().endsWith('.pdf');
+  return name.toLowerCase().endsWith(".pdf");
 }
 interface Topic {
   id: number;
@@ -245,6 +252,7 @@ interface Module {
 const modules = ref<Module[]>([]);
 const selectedTopicId = ref<number | null>(null);
 const topicsList = computed(() => modules.value.flatMap((m) => m.topics));
+const fileInput = ref<HTMLInputElement | null>(null);
 
 function loadFiles() {
   axios.get("http://localhost:8000/api/files").then((res) => {
@@ -266,12 +274,12 @@ function loadModules() {
   });
 }
 
-function upload(file: File) {
+function upload(file: File, topicId: number) {
   const formData = new FormData();
   formData.append("file", file);
   axios
     .post("http://localhost:8000/api/files", formData, {
-      params: { topic_id: selectedTopicId.value },
+      params: { topic_id: topicId },
     })
     .then((res) => {
       documents.value.push(res.data);
@@ -369,19 +377,30 @@ function rename(doc: Doc) {
     });
 }
 
-function handleFileUpload(newFile: File | File[]) {
+function handleFileUpload(newFile: File | File[], topicId: number) {
   if (!newFile) return;
   const selected = Array.isArray(newFile) ? newFile[0] : newFile;
-  upload(selected);
+  upload(selected, topicId);
 }
 
-function onDrop(e: DragEvent) {
+function onDrop(e: DragEvent, topicId: number) {
   const files = e.dataTransfer?.files;
   if (files && files.length) {
-    upload(files[0]);
+    upload(files[0], topicId);
   }
 }
+const triggerFileInput = () => {
+  fileInput.value?.click();
+};
 
+const handleFileChange = (event: Event) => {
+  const target = event.target as HTMLInputElement;
+  const file = target.files?.[0];
+  if (file) {
+    // Puedes subirlo a tu backend aquí o emitirlo al componente padre
+    console.log("Archivo seleccionado:", file.name);
+  }
+};
 onMounted(() => {
   loadFiles();
   loadModules();
