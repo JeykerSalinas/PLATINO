@@ -1,7 +1,7 @@
 <template>
   <v-container fluid>
     <v-row>
-      <v-col cols="12">
+      <!-- <v-col cols="12">
         <v-card class="pa-4" @dragover.prevent @drop.prevent="onDrop">
           <h3 class="text-h6 mb-4">
             Arrastra archivos aquí o haz click para subir
@@ -43,9 +43,9 @@
           </v-row>
           <div v-else class="text-medium-emphasis">No hay archivos aún</div>
         </v-card>
-      </v-col>
+      </v-col> -->
     </v-row>
-    <v-row>
+    <!-- <v-row>
       <v-col cols="12">
         <v-select
           label="Asignar a temario"
@@ -56,33 +56,42 @@
           clearable
           class="mb-4"
         />
-        <v-btn icon="mdi-plus" class="ml-2" size="small" @click="addModule" />
       </v-col>
-    </v-row>
+      <v-btn icon="mdi-plus" class="ml-2" size="small" @click="addModule" />
+    </v-row> -->
     <v-row class="mb-3" v-for="mod in modules" :key="mod.id">
       <v-col cols="12" class="bg-blue-grey-darken-4 rounded">
-        <div class="d-flex justify-between align-center">
+        <div class="d-flex align-center">
           <v-text-field
             v-model="mod.title"
             @input="editModule(mod)"
           ></v-text-field>
+          <v-menu>
+            <template v-slot:activator="{ props }">
+              <v-btn
+                icon="mdi-dots-horizontal"
+                variant="text"
+                v-bind="props"
+              ></v-btn>
+            </template>
 
-          <div class="d-flex align-center ml-auto">
-            <v-btn icon="mdi-plus" size="small" @click="addTopic(mod)" />
-            <v-btn
-              icon="mdi-delete"
-              size="small"
-              class="ml-2"
-              @click="removeModule(mod)"
-            />
-          </div>
+            <v-list>
+              <v-list-item @click="addTopic(mod)">
+                <v-list-item-title
+                  >Agregar Tema <v-icon>mdi-plus</v-icon></v-list-item-title
+                >
+              </v-list-item>
+              <v-list-item @click="removeModule(mod)">
+                <v-list-item-title
+                  >Eliminar Módulo
+                  <v-icon>mdi-delete</v-icon>
+                </v-list-item-title>
+              </v-list-item>
+            </v-list>
+          </v-menu>
         </div>
         <v-expansion-panels class="my-4">
-          <v-expansion-panel
-            size="small"
-            v-for="topic in mod.topics"
-            :key="topic.id"
-          >
+          <v-expansion-panel class="" v-for="topic in mod.topics" :key="topic.id">
             <template #title>
               <div class="d-flex align-center justify-between w-100">
                 <span>{{ topic.title }}</span>
