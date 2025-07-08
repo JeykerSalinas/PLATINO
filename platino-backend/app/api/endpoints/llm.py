@@ -4,11 +4,16 @@ import os
 import httpx
 import json
 from openai import AsyncOpenAI
+from pydantic import BaseModel
 
 router = APIRouter()
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/generate")
+
+
+class PromptRequest(BaseModel):
+    prompt: str
 
 async def stream_openai(prompt: str):
     if not OPENAI_API_KEY:
@@ -37,7 +42,9 @@ async def stream_ollama(prompt: str):
                     yield line + "\n"
 
 @router.post("/chat/stream")
-async def chat_stream(prompt: str):
+async def chat_stream(data: PromptRequest):
+    prompt = data.prompt
+
     async def generator():
         try:
             async for chunk in stream_openai(prompt):
