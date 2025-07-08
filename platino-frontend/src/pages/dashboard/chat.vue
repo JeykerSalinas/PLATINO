@@ -162,6 +162,7 @@ const sendMessageToOllamaStream = async (
     },
     body: JSON.stringify({
       prompt,
+      provider: "openai",
     }),
   });
 

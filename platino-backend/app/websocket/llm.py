@@ -40,8 +40,10 @@ async def websocket_endpoint(websocket: WebSocket):
 
             try:
                 response = await call_openai(data)
+                print('OpenIA connected')
             except Exception:
                 response = await call_ollama(data)
+                print('Ollama connected')
 
             await websocket.send_text(response)
     except WebSocketDisconnect:
