@@ -1,6 +1,8 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from ..core.rag_engine import query
 
 router = APIRouter()
+
 
 @router.websocket("/ws/chat")
 async def websocket_endpoint(websocket: WebSocket):
@@ -8,8 +10,7 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         while True:
             data = await websocket.receive_text()
-            # In a real app, call your LLM here
-            response = f"Echo: {data}"
-            await websocket.send_text(response)
+            response = query(data)
+            await websocket.send_text(str(response))
     except WebSocketDisconnect:
         pass
