@@ -11,7 +11,8 @@
           </v-list-item-subtitle>
         </v-list-item>
       </v-list>
-      <spinner />
+      <spinner v-if="isLoading" />
+      <div v-if="error" class="text-error">{{ error }}</div>
     </div>
     <div></div>
     <div class="mt-3">
@@ -48,6 +49,8 @@ const store = useOllamaStore();
 const input = ref("");
 const messages = computed(() => store.messages);
 const fileInput = ref<HTMLInputElement | null>(null);
+const isLoading = ref(false);
+const error = ref("");
 
 function onDrop(e: DragEvent) {
   const files = e.dataTransfer?.files;
@@ -145,9 +148,12 @@ function send() {
   // Referencia al mensaje recién agregado para ir actualizándolo
   const aiIndex = store.messages.length - 1;
 
+  error.value = "";
   sendMessageToOllamaStream(text, (chunk) => {
     aiResponse += chunk;
     store.messages[aiIndex].text = aiResponse;
+  }).catch(() => {
+    store.messages[aiIndex].text = "";
   });
 }
 
@@ -155,48 +161,56 @@ const sendMessageToOllamaStream = async (
   prompt: string,
   onChunk: (text: string) => void
 ) => {
-  const response = await fetch("http://localhost:11434/api/generate", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "llama3",
-      prompt,
-      stream: true,
-    }),
-  });
+  isLoading.value = true;
+  try {
+    const response = await fetch("http://localhost:11434/api/generate", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "llama3",
+        prompt,
+        stream: true,
+      }),
+    });
 
-  const reader = response.body?.getReader();
-  const decoder = new TextDecoder("utf-8");
+    const reader = response.body?.getReader();
+    const decoder = new TextDecoder("utf-8");
 
-  let fullText = "";
+    let fullText = "";
 
-  if (!reader) return;
+    if (!reader) throw new Error("sin lector");
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
 
-    const chunk = decoder.decode(value, { stream: true });
+      const chunk = decoder.decode(value, { stream: true });
 
-    // Ollama envía múltiples objetos JSON por línea
-    const lines = chunk.split("\n").filter(Boolean);
+      // Ollama envía múltiples objetos JSON por línea
+      const lines = chunk.split("\n").filter(Boolean);
 
-    for (const line of lines) {
-      try {
-        const json = JSON.parse(line);
-        if (json.response) {
-          fullText += json.response;
-          onChunk(json.response); // Emite fragmento
+      for (const line of lines) {
+        try {
+          const json = JSON.parse(line);
+          if (json.response) {
+            fullText += json.response;
+            onChunk(json.response); // Emite fragmento
+          }
+        } catch (err) {
+          console.error("Error al parsear línea:", line, err);
         }
-      } catch (err) {
-        console.error("Error al parsear línea:", line, err);
       }
     }
-  }
 
-  return fullText;
+    return fullText;
+  } catch (err) {
+    error.value = "Error al comunicarse con la IA";
+    throw err;
+  } finally {
+    isLoading.value = false;
+  }
 };
 </script>
 
