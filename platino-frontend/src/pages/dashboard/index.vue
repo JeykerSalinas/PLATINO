@@ -9,6 +9,10 @@
       <v-icon>mdi-magnify</v-icon>
     </v-btn>
 
+    <v-btn icon @click="toggleTheme">
+      <v-icon>mdi-theme-light-dark</v-icon>
+    </v-btn>
+
     <v-btn icon>
       <v-icon>mdi-dots-vertical</v-icon>
     </v-btn>
@@ -34,6 +38,7 @@
 
 <script setup lang="ts">
 import { ref } from "vue";
+import { useTheme } from "vuetify";
 
 const drawerItems = ref([
   {
@@ -53,4 +58,9 @@ const drawerItems = ref([
   },
 ]);
 const currentDrawer = ref(false);
+const theme = useTheme();
+function toggleTheme() {
+  theme.global.name.value =
+    theme.global.name.value === "dark" ? "light" : "dark";
+}
 </script>

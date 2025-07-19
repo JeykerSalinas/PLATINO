@@ -10,8 +10,8 @@ services:
     volumes:
       - ollama_models:/root/.ollama
     restart: unless-stopped
-
-  db:
+    command: ["serve"] 
+  db: 
     image: postgres:15
     container_name: platino-db
     restart: unless-stopped
