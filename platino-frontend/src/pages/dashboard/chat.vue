@@ -11,7 +11,11 @@
           </v-list-item-subtitle>
         </v-list-item>
       </v-list>
-      <spinner v-if="isLoading" />
+      <v-progress-circular
+        v-if="isLoading"
+        color="primary"
+        indeterminate
+      ></v-progress-circular>
       <div v-if="error" class="text-error">{{ error }}</div>
     </div>
     <div></div>
