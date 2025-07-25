@@ -46,7 +46,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useOllamaStore } from "@/stores/ollama";
-import axios from "axios";
+import axios from "@/plugins/axios";
 import spinner from "@/components/ui/spinner.vue";
 
 const store = useOllamaStore();
