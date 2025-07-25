@@ -1,5 +1,5 @@
 <template>
-  <v-container fluid>
+  <v-container>
     <!-- <v-row>
       <v-col cols="12">
         <v-card class="pa-4" @dragover.prevent @drop.prevent="onDrop">
@@ -36,17 +36,16 @@
       </v-col>
     </v-row> -->
 
-    <v-row class="mb-3" v-for="mod in modules" :key="mod.id">
-      <v-col cols="12" class="bg-blue-grey-darken-4 rounded">
-        <div class="d-flex align-center">
-          <v-text-field
-            v-model="mod.title"
-            @input="editModule(mod)"
-          ></v-text-field>
+    <v-row v-for="mod in modules" :key="mod.id">
+      <v-col cols="12">
+        <div class="d-flex justify-space-between align-center">
+          <div class="text-h6 px-5">
+            {{ mod.title }}
+          </div>
           <v-menu>
             <template v-slot:activator="{ props }">
               <v-btn
-                icon="mdi-dots-horizontal"
+                icon="mdi-dots-vertical"
                 variant="text"
                 v-bind="props"
               ></v-btn>
@@ -54,35 +53,49 @@
 
             <v-list>
               <v-list-item @click="addTopic(mod)">
-                <v-list-item-title>
-                  Agregar Tema <v-icon>mdi-plus</v-icon>
-                </v-list-item-title>
+                <v-list-item-title> Agregar Tema </v-list-item-title>
+                <template v-slot:prepend>
+                  <v-icon icon="mdi-plus"></v-icon>
+                </template>
               </v-list-item>
               <v-list-item @click="removeModule(mod)">
-                <v-list-item-title
-                  >Eliminar Módulo
-                  <v-icon>mdi-delete</v-icon>
-                </v-list-item-title>
+                <template v-slot:prepend>
+                  <v-icon icon="mdi-delete"></v-icon>
+                </template>
+                <v-list-item-title>Eliminar Módulo </v-list-item-title>
               </v-list-item>
             </v-list>
           </v-menu>
         </div>
-        <v-expansion-panels class="my-4">
+        <v-divider></v-divider>
+        <v-expansion-panels size="sm" class="my-4" v-if="mod.topics.length">
           <v-expansion-panel
             class=""
             v-for="topic in mod.topics"
             :key="topic.id"
           >
             <template #title>
-              <div class="d-flex align-center justify-between w-100">
-                <span>{{ topic.title }}</span>
-                <div>
+              <div class="d-flex align-center justify-space-between w-100">
+                <div>{{ topic.title }}</div>
+                <div class="d-flex align-center">
+                  <v-file-input
+                    label=""
+                    @update:modelValue="handleFileUpload($event, topic.id)"
+                    show-size
+                    variant="plain"
+                    preppend-icon="mdi-plus"
+                    density="compact"
+                  />
                   <v-btn
+                    density="compact"
+                    variant="plain"
                     icon="mdi-pencil"
                     size="small"
                     @click.stop="editTopic(topic)"
                   />
                   <v-btn
+                    density="compact"
+                    variant="plain"
                     icon="mdi-delete"
                     size="small"
                     class="ml-2"
@@ -96,67 +109,46 @@
                 <v-col
                   cols="12"
                   sm="6"
-                  md="2"
                   v-for="doc in documents.filter(
                     (d) => d.topic_id === topic.id
                   )"
                   :key="doc.id"
                 >
-                  <v-card @click="viewDocument(doc)" class="cursor-pointer">
-                    <template v-if="doc.thumbnail">
-                      <v-img
-                        :src="`http://localhost:8000/${doc.thumbnail}`"
-                        height="120"
-                      />
-                    </template>
-                    <template v-else>
-                      <div
-                        class="d-flex align-center justify-center"
-                        style="height: 120px"
-                      >
-                        <v-icon size="64">mdi-file-word</v-icon>
-                      </div>
-                    </template>
-                    <v-card-title class="text-wrap">{{
-                      doc.filename
-                    }}</v-card-title>
-                  </v-card>
-                </v-col>
-                <v-col cols="12" sm="6" md="2">
-                  <v-card
-                    class="cursor-pointer"
-                    @dragover.prevent
-                    @drop.prevent="onDrop($event, topic.id)"
+                  <div
+                    class="border rounded d-flex cursor-pointer"
+                    @click="viewDocument(doc)"
                   >
-                    <div
-                      class="d-flex align-center justify-center"
-                      style="height: 120px"
-                      @click="triggerFileInput"
-                    >
-                      <v-icon size="64">mdi-plus</v-icon>
+                    <div class="border-e" style="width: 33%">
+                      <template v-if="doc.thumbnail">
+                        <v-img
+                          :src="`http://localhost:8000/${doc.thumbnail}`"
+                          height="80"
+                          width="30%"
+                        />
+                      </template>
+                      <template v-else>
+                        <div
+                          class="d-flex align-center justify-center"
+                          style="height: 80px"
+                        >
+                          <v-icon size="64">mdi-file-word</v-icon>
+                        </div>
+                      </template>
                     </div>
-
-                    <v-card-title class="text-wrap">
-                      <v-file-input
-                        label=""
-                        @update:modelValue="handleFileUpload($event, topic.id)"
-                        show-size
-                        variant="plain"
-                        preppend-icon=""
-                    /></v-card-title>
-                    <!-- <input
-                      type="file"
-                      ref="fileInput"
-                      class="d-none"
-                      @change="handleFileChange"
-                      accept=".pdf,.doc,.docx"
-                    /> -->
-                  </v-card>
+                    <div class="d-flex align-center pa-3">
+                      <div class="pb-3">
+                        {{ doc.filename }}
+                      </div>
+                    </div>
+                  </div>
                 </v-col>
               </v-row>
             </template>
           </v-expansion-panel>
         </v-expansion-panels>
+        <div class="px-5 py-3 text-caption" v-else>
+          No existen temas para el módulo: "{{ mod.title }}"
+        </div>
       </v-col>
     </v-row>
     <v-row>
@@ -406,3 +398,4 @@ onMounted(() => {
   loadModules();
 });
 </script>
+<style lang="scss"></style>

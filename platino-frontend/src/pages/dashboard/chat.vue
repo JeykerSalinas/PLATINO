@@ -1,25 +1,29 @@
 <template>
-  <div class="pa-3 d-flex flex-column justify-end fill-height">
-    <div>
-      <v-list v-if="messages.length">
-        <v-list-item v-for="(msg, index) in messages" :key="index">
-          <v-list-item-title class="text-subtitle-1">
-            {{ msg.from }}
-          </v-list-item-title>
-          <v-list-item-subtitle>
+  <div
+    class="container pa-3 d-flex flex-column justify-content-between fill-height"
+  >
+    <div class="messages-container pt-4">
+      <div v-if="messages.length" class="messages-list">
+        <div
+          v-for="(msg, index) in messages"
+          :key="index"
+          class="mb-4"
+          :class="msg.from === 'user' ? ' user-message text-end' : 'ia-message'"
+        >
+          <span
+            :class="
+              msg.from === 'user' ? 'bg-surface-light rounded-lg pa-4' : ''
+            "
+          >
             {{ msg.text }}
-          </v-list-item-subtitle>
-        </v-list-item>
-      </v-list>
-      <v-progress-circular
-        v-if="isLoading"
-        color="primary"
-        indeterminate
-      ></v-progress-circular>
+          </span>
+        </div>
+      </div>
+
       <div v-if="error" class="text-error">{{ error }}</div>
     </div>
-    <div></div>
-    <div class="mt-3">
+    <div class="mt-3 input-container">
+      <spinner v-if="isLoading"></spinner>
       <!-- Input de PDF oculto -->
       <input
         ref="fileInput"
@@ -27,6 +31,7 @@
         accept="application/pdf"
         class="d-none"
         @change="handleFileChange"
+        :disabled="isLoading"
       />
 
       <!-- Input de texto -->
@@ -47,6 +52,7 @@
 import { computed, onMounted, ref } from "vue";
 import { useOllamaStore } from "@/stores/ollama";
 import axios from "axios";
+
 import spinner from "@/components/ui/spinner.vue";
 
 const store = useOllamaStore();
@@ -217,7 +223,21 @@ const sendMessageToOllamaStream = async (
   }
 };
 </script>
-
+<style lang="scss" scoped>
+.container {
+  max-width: 1200px;
+  max-height: calc(100vh - 100px);
+  margin: 0 auto;
+  .messages-container {
+    flex: 1;
+    overflow-y: auto;
+  }
+  .user-message {
+    max-width: 66%;
+    margin-left: auto;
+  }
+}
+</style>
 <route lang="yaml">
 meta:
   requiresAuth: false
