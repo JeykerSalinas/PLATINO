@@ -16,6 +16,22 @@ import { createVuetify } from "vuetify";
 export default createVuetify({
   theme: {
     defaultTheme: "light",
+    themes: {
+      light: {
+        dark: false,
+        colors: {
+          background: "#F3F4F6", // gris claro, lectura
+          primary: "#35364aff",
+        },
+      },
+      dark: {
+        dark: true,
+        colors: {
+          background: "#0c0909ff", // casi negro, matiz frío
+          primary: "#046865",
+        },
+      },
+    },
   },
   components: {
     VFileUpload,

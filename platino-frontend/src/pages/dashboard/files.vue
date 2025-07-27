@@ -107,31 +107,40 @@
                   :key="doc.id"
                 >
                   <div
-                    class="border rounded d-flex cursor-pointer"
+                    class="border rounded d-flex cursor-pointer position-relative"
                     @click="viewDocument(doc)"
                   >
-                    <div class="border-e" style="width: 33%">
+                    <div class="border-e">
                       <template v-if="doc.thumbnail">
                         <v-img
+                          height="90"
+                          width="120"
                           cover
                           :src="`${apiUrl}${doc.thumbnail}`"
-                          height="80"
                         />
                       </template>
                       <template v-else>
                         <div
                           class="d-flex align-center justify-center"
-                          style="height: 80px"
+                          style="height: 90px; width: 120px"
                         >
                           <v-icon size="64">mdi-file-word</v-icon>
                         </div>
                       </template>
                     </div>
-                    <div class="d-flex align-center pa-3">
-                      <div class="pb-3">
+                    <div class="d-flex align-center pa-3 overflow-hidden">
+                      <div class="pb-3 me-5 text-truncate">
                         {{ doc.filename }}
                       </div>
                     </div>
+                    <v-btn
+                      density="compact"
+                      variant="plain"
+                      icon="mdi-close"
+                      size="small"
+                      class="ml-2 position-absolute bottom-0 right-0 top-0 pa-2 pe-3"
+                      @click.stop="remove(doc.id)"
+                    />
                   </div>
                 </v-col>
 
@@ -166,17 +175,32 @@
         {{ selectedDoc.filename }}
         <div>
           <v-btn
+            density="compact"
+            variant="plain"
+            size="small"
             icon="mdi-download"
             :href="`${selectedDoc.filepath}`"
             download
-            class="mr-2"
           />
-          <v-btn icon="mdi-close" @click="dialog = false" />
+          <v-btn
+            density="compact"
+            variant="plain"
+            icon="mdi-delete"
+            size="small"
+            @click.stop="remove(selectedDoc.id)"
+          />
+          <v-btn
+            density="compact"
+            variant="plain"
+            size="small"
+            icon="mdi-close"
+            @click="dialog = false"
+          />
         </div>
       </v-card-title>
       <v-card-text>
         <v-row>
-          <v-col cols="12" md="6">
+          <v-col cols="12" sm="6">
             <iframe
               v-if="isPdf(selectedDoc.filename)"
               :src="`${apiUrl}${selectedDoc.filepath}`"
@@ -190,7 +214,7 @@
               <v-icon size="64">mdi-file-word</v-icon>
             </div>
           </v-col>
-          <v-col cols="12" md="6" style="max-height: 75vh; overflow-y: auto">
+          <v-col cols="12" sm="6" style="max-height: 75vh; overflow-y: auto">
             <v-list>
               <v-list-item
                 v-for="(chunk, idx) in selectedDoc.chunks"
@@ -277,6 +301,7 @@ function upload(file: File, topicId: number) {
 }
 
 function remove(id: number) {
+  if (!confirm("¿Eliminar documento?")) return;
   axios.delete(`api/files/${id}`).then(() => {
     documents.value = documents.value.filter((d) => d.id !== id);
   });

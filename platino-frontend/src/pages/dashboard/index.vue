@@ -1,20 +1,13 @@
 <template>
-  <v-app-bar title="PLATINO">
+  <v-app-bar title="PLATINO" density="compact">
     <template v-slot:prepend>
       <v-app-bar-nav-icon
         @click="currentDrawer = !currentDrawer"
       ></v-app-bar-nav-icon>
     </template>
-    <v-btn icon>
-      <v-icon>mdi-magnify</v-icon>
-    </v-btn>
 
-    <v-btn icon @click="toggleTheme">
+    <v-btn icon @click="toggleTheme" size="small">
       <v-icon>mdi-theme-light-dark</v-icon>
-    </v-btn>
-
-    <v-btn icon>
-      <v-icon>mdi-dots-vertical</v-icon>
     </v-btn>
   </v-app-bar>
 
@@ -62,5 +55,6 @@ const theme = useTheme();
 function toggleTheme() {
   theme.global.name.value =
     theme.global.name.value === "dark" ? "light" : "dark";
+  localStorage.setItem("platino-theme", theme.global.name.value);
 }
 </script>

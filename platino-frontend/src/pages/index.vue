@@ -14,7 +14,12 @@
         <v-icon end>mdi-arrow-right</v-icon>
       </v-btn>
 
-      <v-img :src="uditLogo" class="my-4 mx-auto rounded" width="150px" />
+      <v-img
+        :src="uditLogo"
+        class="my-4 mx-auto rounded"
+        width="150px"
+        style="mix-blend-mode: difference"
+      />
     </v-card>
   </v-container>
 </template>
@@ -37,6 +42,10 @@ const startChat = () => {
 <style scoped>
 .scale-fade {
   animation: zoomOut 0.6s ease-in-out forwards;
+}
+
+img {
+  filter: invert(1) brightness(2);
 }
 
 @keyframes zoomOut {
