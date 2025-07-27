@@ -7,10 +7,15 @@ from pathlib import Path
 import fitz  # PyMuPDF
 from llama_index.readers.file import PyMuPDFReader, PDFReader
 from llama_index.core.node_parser import SimpleNodeParser
+from llama_index.core import StorageContext, VectorStoreIndex
+from llama_index.vector_stores.qdrant import QdrantVectorStore
+from qdrant_client import QdrantClient
+from qdrant_client.http.models import Distance, VectorParams
 import tempfile
 import traceback
 from ...db.session import get_db
 from ...db.models import Document, Topic
+from ...core.config import settings
 
 router = APIRouter()
 
@@ -50,6 +55,21 @@ async def upload_file(
             parser = SimpleNodeParser.from_defaults()
             nodes = parser.get_nodes_from_documents(documents)
             chunks = [node.text for node in nodes]
+
+            # Indexar los chunks en Qdrant utilizando LlamaIndex
+            client = QdrantClient(url=settings.qdrant_url)
+            collection_name = "documents"
+            try:
+                client.get_collection(collection_name)
+            except Exception:
+                client.create_collection(
+                    collection_name=collection_name,
+                    vectors_config=VectorParams(size=1536, distance=Distance.COSINE),
+                )
+
+            vector_store = QdrantVectorStore(client=client, collection_name=collection_name)
+            storage_context = StorageContext.from_defaults(vector_store=vector_store)
+            VectorStoreIndex(nodes, storage_context=storage_context)
 
         if topic_id is not None:
             topic = db.query(Topic).get(topic_id)

@@ -11,7 +11,7 @@ services:
       - ollama_models:/root/.ollama
     restart: unless-stopped
     command: ["serve"] 
-  db: 
+  db:
     image: postgres:15
     container_name: platino-db
     restart: unless-stopped
@@ -24,6 +24,15 @@ services:
     ports:
       - "5432:5432"
 
+  qdrant:
+    image: qdrant/qdrant
+    container_name: platino-qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
   backend:
     build:
       context: ./platino-backend
@@ -35,9 +44,11 @@ services:
       - "8000:8000"
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@db:5432/platino
-    depends_on:
-      - db
-      - ollama
+      - QDRANT_URL=http://qdrant:6333
+  depends_on:
+    - db
+    - ollama
+    - qdrant
 
   frontend:
     build:
@@ -55,3 +66,4 @@ services:
 volumes:
   ollama_models:
   postgres_data:
+  qdrant_data:
