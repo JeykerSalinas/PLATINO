@@ -58,6 +58,12 @@
                   <v-icon icon="mdi-plus"></v-icon>
                 </template>
               </v-list-item>
+              <v-list-item @click="editModule(mod)">
+                <v-list-item-title> Editar nombre </v-list-item-title>
+                <template v-slot:prepend>
+                  <v-icon icon="mdi-pencil"></v-icon>
+                </template>
+              </v-list-item>
               <v-list-item @click="removeModule(mod)">
                 <template v-slot:prepend>
                   <v-icon icon="mdi-delete"></v-icon>
@@ -328,15 +334,14 @@ function addTopic(module: Module) {
 }
 
 function editModule(module: Module) {
-  // const title = prompt("Nuevo título", module.title);
-
+  const title = prompt("Nuevo título", module.title);
   if (!module.title) return;
   axios
     .put(`api/modules/${module.id}`, null, {
-      params: { title: module.title },
+      params: { title: title },
     })
     .then((res) => {
-      // module.title = res.data.title;
+      module.title = res.data.title;
     });
 }
 
