@@ -10,6 +10,7 @@ import os
 app = FastAPI(title="Platino Backend")
 
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "..", "uploads")
+UPLOAD_DIR = os.path.abspath(UPLOAD_DIR)  # Opcional, para asegurar path absoluto
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 
