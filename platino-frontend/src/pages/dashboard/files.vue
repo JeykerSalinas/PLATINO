@@ -13,7 +13,7 @@
             >
               <v-card>
                 <v-img
-                  :src="`http://localhost:8000/${doc.thumbnail}`"
+                  :src="`${doc.thumbnail}`"
                   height="120"
                   cover
                 />
@@ -78,14 +78,6 @@
               <div class="d-flex align-center justify-space-between w-100">
                 <div>{{ topic.title }}</div>
                 <div class="d-flex align-center">
-                  <v-file-input
-                    label=""
-                    @update:modelValue="handleFileUpload($event, topic.id)"
-                    show-size
-                    variant="plain"
-                    preppend-icon="mdi-plus"
-                    density="compact"
-                  />
                   <v-btn
                     density="compact"
                     variant="plain"
@@ -121,9 +113,9 @@
                     <div class="border-e" style="width: 33%">
                       <template v-if="doc.thumbnail">
                         <v-img
-                          :src="`http://localhost:8000/${doc.thumbnail}`"
+                          cover
+                          :src="`${apiUrl}${doc.thumbnail}`"
                           height="80"
-                          width="30%"
                         />
                       </template>
                       <template v-else>
@@ -141,6 +133,14 @@
                       </div>
                     </div>
                   </div>
+                </v-col>
+
+                <v-col cols="12" sm="6"
+                  ><v-file-upload
+                    density="compact"
+                    title="Arrastra o agrega archivos"
+                    @update:modelValue="handleFileUpload($event, topic.id)"
+                  ></v-file-upload>
                 </v-col>
               </v-row>
             </template>
@@ -167,7 +167,7 @@
         <div>
           <v-btn
             icon="mdi-download"
-            :href="`http://localhost:8000/${selectedDoc.filepath}`"
+            :href="`${selectedDoc.filepath}`"
             download
             class="mr-2"
           />
@@ -179,7 +179,7 @@
           <v-col cols="12" md="6">
             <iframe
               v-if="isPdf(selectedDoc.filename)"
-              :src="`http://localhost:8000/${selectedDoc.filepath}`"
+              :src="`${apiUrl}${selectedDoc.filepath}`"
               style="width: 100%; height: 75vh"
             ></iframe>
             <div
@@ -208,7 +208,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, computed } from "vue";
-import axios from "axios";
+import axios from "@/plugins/axios";
 
 interface Doc {
   id: number;
@@ -222,7 +222,7 @@ interface DocDetail extends Doc {
   metadata: any;
   chunks: string[];
 }
-
+const apiUrl = import.meta.env.VITE_API_URL;
 const documents = ref<Doc[]>([]);
 const selectedDoc = ref<DocDetail | null>(null);
 const dialog = ref(false);
@@ -247,21 +247,19 @@ const topicsList = computed(() => modules.value.flatMap((m) => m.topics));
 const fileInput = ref<HTMLInputElement | null>(null);
 
 function loadFiles() {
-  axios.get("http://localhost:8000/api/files").then((res) => {
+  axios.get("api/files").then((res) => {
     documents.value = res.data.files;
   });
 }
 
 function loadModules() {
-  axios.get("http://localhost:8000/api/modules").then((res) => {
+  axios.get("api/modules").then((res) => {
     modules.value = res.data.modules.map((m: any) => ({ ...m, topics: [] }));
     modules.value.forEach((m) => {
-      axios
-        .get(`http://localhost:8000/api/modules/${m.id}/topics`)
-        .then((r) => {
-          const mod = modules.value.find((mm) => mm.id === m.id);
-          if (mod) mod.topics = r.data.topics;
-        });
+      axios.get(`api/modules/${m.id}/topics`).then((r) => {
+        const mod = modules.value.find((mm) => mm.id === m.id);
+        if (mod) mod.topics = r.data.topics;
+      });
     });
   });
 }
@@ -270,7 +268,7 @@ function upload(file: File, topicId: number) {
   const formData = new FormData();
   formData.append("file", file);
   axios
-    .post("http://localhost:8000/api/files", formData, {
+    .post("api/files", formData, {
       params: { topic_id: topicId },
     })
     .then((res) => {
@@ -279,7 +277,7 @@ function upload(file: File, topicId: number) {
 }
 
 function remove(id: number) {
-  axios.delete(`http://localhost:8000/api/files/${id}`).then(() => {
+  axios.delete(`api/files/${id}`).then(() => {
     documents.value = documents.value.filter((d) => d.id !== id);
   });
 }
@@ -287,18 +285,16 @@ function remove(id: number) {
 function addModule() {
   const title = prompt("Nombre del módulo");
   if (!title) return;
-  axios
-    .post("http://localhost:8000/api/modules", null, { params: { title } })
-    .then((res) => {
-      modules.value.push({ ...res.data, topics: [] });
-    });
+  axios.post("api/modules", null, { params: { title } }).then((res) => {
+    modules.value.push({ ...res.data, topics: [] });
+  });
 }
 
 function addTopic(module: Module) {
   const title = prompt("Nombre del temario");
   if (!title) return;
   axios
-    .post(`http://localhost:8000/api/modules/${module.id}/topics`, null, {
+    .post(`api/modules/${module.id}/topics`, null, {
       params: { title },
     })
     .then((res) => {
@@ -311,7 +307,7 @@ function editModule(module: Module) {
 
   if (!module.title) return;
   axios
-    .put(`http://localhost:8000/api/modules/${module.id}`, null, {
+    .put(`api/modules/${module.id}`, null, {
       params: { title: module.title },
     })
     .then((res) => {
@@ -323,7 +319,7 @@ function editTopic(topic: Topic) {
   const title = prompt("Nuevo título", topic.title);
   if (!title || title === topic.title) return;
   axios
-    .put(`http://localhost:8000/api/topics/${topic.id}`, null, {
+    .put(`api/topics/${topic.id}`, null, {
       params: { title },
     })
     .then((res) => {
@@ -333,7 +329,7 @@ function editTopic(topic: Topic) {
 
 function removeModule(module: Module) {
   if (!confirm("¿Eliminar módulo y sus temarios?")) return;
-  axios.delete(`http://localhost:8000/api/modules/${module.id}`).then(() => {
+  axios.delete(`api/modules/${module.id}`).then(() => {
     modules.value = modules.value.filter((m) => m.id !== module.id);
     const topicIds = module.topics.map((t) => t.id);
     documents.value = documents.value.filter(
@@ -344,14 +340,14 @@ function removeModule(module: Module) {
 
 function removeTopic(module: Module, topic: Topic) {
   if (!confirm("¿Eliminar temario?")) return;
-  axios.delete(`http://localhost:8000/api/topics/${topic.id}`).then(() => {
+  axios.delete(`api/topics/${topic.id}`).then(() => {
     module.topics = module.topics.filter((t) => t.id !== topic.id);
     documents.value = documents.value.filter((d) => d.topic_id !== topic.id);
   });
 }
 
 function viewDocument(doc: Doc) {
-  axios.get(`http://localhost:8000/api/files/${doc.id}`).then((res) => {
+  axios.get(`api/files/${doc.id}`).then((res) => {
     selectedDoc.value = res.data;
     dialog.value = true;
   });
@@ -361,7 +357,7 @@ function rename(doc: Doc) {
   const newName = prompt("Nuevo nombre", doc.filename);
   if (!newName || newName === doc.filename) return;
   axios
-    .put(`http://localhost:8000/api/files/${doc.id}`, null, {
+    .put(`api/files/${doc.id}`, null, {
       params: { new_name: newName },
     })
     .then((res) => {
@@ -371,6 +367,7 @@ function rename(doc: Doc) {
 
 function handleFileUpload(newFile: File | File[], topicId: number) {
   if (!newFile) return;
+  console.log(newFile);
   const selected = Array.isArray(newFile) ? newFile[0] : newFile;
   upload(selected, topicId);
 }
@@ -398,4 +395,15 @@ onMounted(() => {
   loadModules();
 });
 </script>
-<style lang="scss"></style>
+<style lang="scss">
+.v-file-upload {
+  max-height: 80px !important;
+  .v-file-upload-title {
+    font-size: small;
+    font-weight: 400;
+  }
+}
+.v-file-upload-items {
+  display: none !important;
+}
+</style>

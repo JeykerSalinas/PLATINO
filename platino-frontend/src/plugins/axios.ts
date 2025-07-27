@@ -1,8 +1,8 @@
 import axios from "axios";
 import { useNotificationStore } from "@/stores/notifications";
-
+const apiUrl = import.meta.env.VITE_API_URL;
 const axiosInstance = axios.create({
-  baseURL: "https://mi.api.com/",
+  baseURL: apiUrl,
   // Aquí puedes añadir más configuraciones como headers por defecto
 });
 

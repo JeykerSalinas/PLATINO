@@ -51,7 +51,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useOllamaStore } from "@/stores/ollama";
-import axios from "axios";
+import axios from "@/plugins/axios";
 
 import spinner from "@/components/ui/spinner.vue";
 
@@ -83,7 +83,7 @@ async function uploadPdf(file: File) {
   formData.append("file", file);
   try {
     const { data } = await axios.post(
-      "http://localhost:8000/api/files_2",
+      "api/files_2",
       formData
     );
     if (data.chunks) {
