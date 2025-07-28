@@ -9,3 +9,5 @@ psycopg2-binary
 PyMuPDF
 python-multipart
 qdrant-client
+llama-index-vector-stores-qdrant
+llama-index-embeddings-huggingface
