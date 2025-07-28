@@ -149,12 +149,24 @@
                     />
                   </div>
                 </v-col>
-
+                <v-col cols="12" sm="6" v-if="loadingFile">
+                  <div
+                    class="border rounded d-flex cursor-pointer align-center justify-center position-relative"
+                    style="height: 90px"
+                  >
+                    <v-progress-circular
+                      :size="50"
+                      color="primary"
+                      indeterminate
+                    ></v-progress-circular></div
+                ></v-col>
                 <v-col cols="12" sm="6"
                   ><v-file-upload
                     density="compact"
                     title="Arrastra o agrega archivos"
+                    style="min-height: 90px"
                     @update:modelValue="handleFileUpload($event, topic.id)"
+                    :disabled="loadingFile"
                   ></v-file-upload>
                 </v-col>
               </v-row>
@@ -275,7 +287,7 @@ const modules = ref<Module[]>([]);
 const selectedTopicId = ref<number | null>(null);
 const topicsList = computed(() => modules.value.flatMap((m) => m.topics));
 const fileInput = ref<HTMLInputElement | null>(null);
-
+const loadingFile = ref(false);
 function loadFiles() {
   axios.get("api/files").then((res) => {
     documents.value = res.data.files;
@@ -297,12 +309,16 @@ function loadModules() {
 function upload(file: File, topicId: number) {
   const formData = new FormData();
   formData.append("file", file);
+  loadingFile.value = true;
   axios
     .post("api/files", formData, {
       params: { topic_id: topicId },
     })
     .then((res) => {
       documents.value.push(res.data);
+    })
+    .finally(() => {
+      loadingFile.value = false;
     });
 }
 
