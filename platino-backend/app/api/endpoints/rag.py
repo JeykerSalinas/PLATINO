@@ -290,6 +290,8 @@ async def chat(
     payload: dict,
     db: Session = Depends(get_db),
 ):
+    print('payload****************')
+    print(payload)
     """Simple RAG chat endpoint using Ollama as LLM."""
     question = payload.get("question") if isinstance(payload, dict) else None
     if not question:
