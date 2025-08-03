@@ -14,10 +14,11 @@ from qdrant_client.models import VectorParams, Distance
 import tempfile
 import traceback
 from ...db.session import get_db
-from ...db.models import Document, Topic
+from ...db.models import Document, Topic, Module
 from ...core.config import settings
 from llama_index.core.settings import Settings
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+import requests
 
 router = APIRouter()
 Settings.embed_model = HuggingFaceEmbedding(
@@ -59,6 +60,37 @@ async def upload_file(
             nodes = parser.get_nodes_from_documents(documents)
             chunks = [node.text for node in nodes]
 
+        if topic_id is not None:
+            topic = db.query(Topic).get(topic_id)
+            if not topic:
+                raise HTTPException(status_code=404, detail="Topic not found")
+        else:
+            topic = None
+
+        doc_db = Document(
+            filename=file.filename,
+            filepath=str(path),
+            thumbnail=thumb_path,
+            file_metadata=metadata,
+            chunks=chunks,
+            topic_id=topic_id,
+        )
+        db.add(doc_db)
+        db.commit()
+        db.refresh(doc_db)
+
+        topic_name = topic.title if topic else None
+        module_name = topic.module.title if topic else None
+
+        if file.filename.lower().endswith(".pdf"):
+            for node in nodes:
+                node.metadata = {
+                    "document_id": doc_db.id,
+                    "filename": doc_db.filename,
+                    "topic": topic_name,
+                    "module": module_name,
+                }
+
             client = QdrantClient(url=settings.qdrant_url)
             collection_name = "documents"
             try:
@@ -74,23 +106,6 @@ async def upload_file(
             vector_store = QdrantVectorStore(client=client, collection_name=collection_name)
             storage_context = StorageContext.from_defaults(vector_store=vector_store)
             VectorStoreIndex(nodes, storage_context=storage_context)
-
-        if topic_id is not None:
-            topic = db.query(Topic).get(topic_id)
-            if not topic:
-                raise HTTPException(status_code=404, detail="Topic not found")
-
-        doc_db = Document(
-            filename=file.filename,
-            filepath=str(path),
-            thumbnail=thumb_path,
-            file_metadata=metadata,
-            chunks=chunks,
-            topic_id=topic_id,
-        )
-        db.add(doc_db)
-        db.commit()
-        db.refresh(doc_db)
 
         return {
             "id": doc_db.id,
@@ -252,3 +267,57 @@ async def upload_and_split_pdf(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
         
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/chat")
+async def chat(
+    payload: dict,
+    db: Session = Depends(get_db),
+):
+    """Simple RAG chat endpoint using Ollama as LLM."""
+    question = payload.get("question") if isinstance(payload, dict) else None
+    if not question:
+        raise HTTPException(status_code=400, detail="Question required")
+
+    try:
+        client = QdrantClient(url=settings.qdrant_url)
+        vector_store = QdrantVectorStore(client=client, collection_name="documents")
+        storage_context = StorageContext.from_defaults(vector_store=vector_store)
+        index = VectorStoreIndex.from_vector_store(vector_store=vector_store, storage_context=storage_context)
+
+        retriever = index.as_retriever(similarity_top_k=5)
+        nodes = retriever.retrieve(question)
+
+        context = "\n".join([n.get_content() for n in nodes])
+        prompt = f"Contexto:\n{context}\n\nPregunta: {question}\nRespuesta:"
+
+        response = requests.post(
+            "http://localhost:11434/api/generate",
+            json={"model": "llama3", "prompt": prompt, "stream": False},
+            timeout=60,
+        )
+        if response.status_code != 200:
+            raise HTTPException(status_code=500, detail=f"Ollama error: {response.text}")
+
+        data = response.json()
+        answer = data.get("response") or data.get("answer") or ""
+
+        meta = [
+            {
+                "document_id": n.metadata.get("document_id"),
+                "filename": n.metadata.get("filename"),
+                "topic": n.metadata.get("topic"),
+                "module": n.metadata.get("module"),
+            }
+            for n in nodes
+        ]
+
+        return {"answer": answer, "chunks": meta}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print("❌ Error en /chat:", e)
+        traceback.print_exc()
+        raise HTTPException(status_code=400, detail=str(e))
