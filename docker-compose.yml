@@ -5,7 +5,7 @@ services:
     image: ollama/ollama
     container_name: ollama-platino
     ports:
-      - "${OLLAMA_PORT}:11434"
+      - "${OLLAMA_PORT:-11434}:11434"
     volumes:
       - ollama_models:/root/.ollama
     restart: unless-stopped
@@ -16,20 +16,20 @@ services:
     container_name: platino-db
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-platino}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "${DB_PORT}:5432"
+      - "${DB_PORT:-5432}:5432"
 
   qdrant:
     image: qdrant/qdrant
     container_name: platino-qdrant
     restart: unless-stopped
     ports:
-      - "${QDRANT_PORT}:6333"
+      - "${QDRANT_PORT:-6333}:6333"
     volumes:
       - qdrant_data:/qdrant/storage
 
@@ -37,31 +37,35 @@ services:
     build:
       context: ./platino-backend
     container_name: platino-backend
-    command: uvicorn app.main:app --host 0.0.0.0 --port ${BACKEND_PORT} --reload
+    command: uvicorn app.main:app --host 0.0.0.0 --port ${BACKEND_PORT:-8000} --reload
     volumes:
       - ./platino-backend:/app
     ports:
-      - "${BACKEND_PORT}:8000"
+      - "${BACKEND_PORT:-8000}:8000"
     environment:
-      - DATABASE_URL=${DATABASE_URL}
-      - QDRANT_URL=${QDRANT_URL}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-platino}
+      - QDRANT_URL=http://qdrant:6333
     depends_on:
       - db
       - ollama
       - qdrant
 
-  # frontend:
-  #   build:
-  #     context: ./platino-frontend
-  #   container_name: platino-frontend
-  #   command: npm run dev -- --host
-  #   volumes:
-  #     - ./platino-frontend:/app
-  #     - /app/node_modules
-  #   ports:
-  #     - "${FRONTEND_PORT}:5173"
-  #   depends_on:
-  #     - backend
+  frontend:
+    build:
+      context: ./platino-frontend
+    container_name: platino-frontend
+    command: npm run dev -- --host
+    volumes:
+      - ./platino-frontend:/app
+      - /app/node_modules
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    environment:
+      - VITE_API_URL=http://backend:${BACKEND_PORT:-8000}
+      - VITE_OLLAMA_URL=http://ollama:11434
+    depends_on:
+      - backend
+      - ollama
 
 volumes:
   ollama_models:
