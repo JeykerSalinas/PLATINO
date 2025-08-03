@@ -10,7 +10,7 @@ from llama_index.core.node_parser import SimpleNodeParser
 from llama_index.core import StorageContext, VectorStoreIndex
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
-from qdrant_client.models import VectorParams, Distance
+from qdrant_client.models import VectorParams, Distance, Filter, FieldCondition, MatchValue
 import tempfile
 import traceback
 from ...db.session import get_db
@@ -167,6 +167,17 @@ async def delete_file(doc_id: int, db: Session = Depends(get_db)):
         os.remove(doc.filepath)
     if doc.thumbnail and os.path.exists(doc.thumbnail):
         os.remove(doc.thumbnail)
+
+    try:
+        client = QdrantClient(url=settings.qdrant_url)
+        qdrant_filter = Filter(
+            must=[FieldCondition(key="document_id", match=MatchValue(value=doc.id))]
+        )
+        client.delete(collection_name="documents", points_selector=qdrant_filter)
+    except Exception as e:
+        print("❌ Error deleting vectors from Qdrant:", e)
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="Failed to delete from Qdrant")
 
     db.delete(doc)
     db.commit()
