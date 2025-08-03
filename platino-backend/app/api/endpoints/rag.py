@@ -160,6 +160,7 @@ async def get_file(doc_id: int, db: Session = Depends(get_db)):
 async def delete_file(doc_id: int, db: Session = Depends(get_db)):
     """Delete a document and its files."""
     doc = db.query(Document).get(doc_id)
+    print(doc)
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
 
@@ -171,9 +172,12 @@ async def delete_file(doc_id: int, db: Session = Depends(get_db)):
     try:
         client = QdrantClient(url=settings.qdrant_url)
         qdrant_filter = Filter(
-            must=[FieldCondition(key="document_id", match=MatchValue(value=doc.id))]
+            must=[FieldCondition(key="filename", match=MatchValue(value=doc.filename))]
         )
         client.delete(collection_name="documents", points_selector=qdrant_filter)
+        print('*********************')
+       
+        print('FILE DELETED|')
     except Exception as e:
         print("❌ Error deleting vectors from Qdrant:", e)
         traceback.print_exc()

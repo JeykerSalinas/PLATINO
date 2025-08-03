@@ -306,7 +306,8 @@ function loadModules() {
   });
 }
 
-function upload(file: File, topicId: number) {
+function upload(file: File | null, topicId: number) {
+  if (!file) return;
   const formData = new FormData();
   formData.append("file", file);
   loadingFile.value = true;
@@ -319,6 +320,7 @@ function upload(file: File, topicId: number) {
     })
     .finally(() => {
       loadingFile.value = false;
+      file = null;
     });
 }
 
@@ -413,7 +415,6 @@ function rename(doc: Doc) {
 
 function handleFileUpload(newFile: File | File[], topicId: number) {
   if (!newFile) return;
-  console.log(newFile);
   const selected = Array.isArray(newFile) ? newFile[0] : newFile;
   upload(selected, topicId);
 }
