@@ -15,9 +15,13 @@ import { createApp } from 'vue'
 
 // Styles
 import 'unfonts.css'
-
+import axiosInstance, { setupAxiosInterceptors } from "./plugins/axios";
 const app = createApp(App)
 
 registerPlugins(app)
+
+setupAxiosInterceptors()
+
+app.config.globalProperties.$axios = axiosInstance;
 
 app.mount('#app')
