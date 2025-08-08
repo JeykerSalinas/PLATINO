@@ -12,7 +12,7 @@ docker compose up -d --build
 
 Esto inicia los servicios:
 
-- **ollama**: servidor de modelos LLM
+- **ollama**: servidor de modelos LLM. Descarga automáticamente el modelo `llama3` si no está presente.
 - **db**: base de datos PostgreSQL
 - **qdrant**: base de datos vectorial
 - **backend**: API FastAPI

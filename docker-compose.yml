@@ -9,7 +9,13 @@ services:
     volumes:
       - ollama_models:/root/.ollama
     restart: unless-stopped
-    command: ["serve"]
+    entrypoint: ["/bin/sh", "-c"]
+    command: |
+      if ! ollama list | grep -q llama3; then
+        echo "Downloading llama3 model..."
+        ollama pull llama3
+      fi
+      exec ollama serve
 
   db:
     image: postgres:15
