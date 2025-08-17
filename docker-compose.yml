@@ -9,13 +9,6 @@ services:
     volumes:
       - ollama_models:/root/.ollama
     restart: unless-stopped
-    entrypoint: ["/bin/sh", "-c"]
-    command: |
-      if ! ollama list | grep -q llama3; then
-        echo "Downloading llama3 model..."
-        ollama pull llama3
-      fi
-      exec ollama serve
 
   db:
     image: postgres:15
@@ -43,7 +36,17 @@ services:
     build:
       context: ./platino-backend
     container_name: platino-backend
-    command: uvicorn app.main:app --host 0.0.0.0 --port ${BACKEND_PORT:-8000} --reload
+    entrypoint: ["/bin/sh", "-c"]
+    command: |
+      until curl -sS http://ollama:11434/api/tags >/dev/null; do
+        echo "Waiting for ollama..."
+        sleep 5
+      done
+      if ! curl -sS http://ollama:11434/api/tags | grep -q '\"name\":\"llama3\"'; then
+        echo "Pulling llama3 model..."
+        curl -sS http://ollama:11434/api/pull -d '{"name":"llama3"}' >/dev/null
+      fi
+      exec uvicorn app.main:app --host 0.0.0.0 --port ${BACKEND_PORT:-8000} --reload
     volumes:
       - ./platino-backend:/app
     ports:

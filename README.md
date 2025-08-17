@@ -7,15 +7,16 @@ Este proyecto incluye un backend FastAPI, un frontend Vite/Vue y servicios auxil
 Requiere [Docker](https://docs.docker.com/get-docker/) y [Docker Compose](https://docs.docker.com/compose/).
 
 ```bash
+cp .env.example .env
 docker compose up -d --build
 ```
 
 Esto inicia los servicios:
 
-- **ollama**: servidor de modelos LLM. Descarga automáticamente el modelo `llama3` si no está presente.
+- **ollama**: servidor de modelos LLM
+- **backend**: API FastAPI. Verifica que el modelo `llama3` esté disponible y lo descarga automáticamente si falta
 - **db**: base de datos PostgreSQL
 - **qdrant**: base de datos vectorial
-- **backend**: API FastAPI
 - **frontend**: interfaz web Vite
 
 El frontend queda disponible en `http://localhost:5173` (puerto configurable con `FRONTEND_PORT`).
@@ -57,9 +58,8 @@ Para desarrollar sin levantar todo con Docker, solo se usa un contenedor para la
 
    ```bash
    cd platino-backend
+   cp .env.example .env
    pip install -r requirements.txt
-   export DATABASE_URL=postgresql://postgres:postgres@localhost:5432/platino
-   export QDRANT_URL=http://localhost:6333
    uvicorn app.main:app --reload
    ```
 
