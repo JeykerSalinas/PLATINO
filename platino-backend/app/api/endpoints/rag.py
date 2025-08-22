@@ -1,74 +1,188 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
-import os
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Query
+from fastapi.responses import StreamingResponse, JSONResponse
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional, Dict, Any
 from io import BytesIO
 from pathlib import Path
+import os
+import tempfile
+import traceback
 import fitz  # PyMuPDF
-from llama_index.readers.file import PyMuPDFReader, PDFReader
-from llama_index.core.node_parser import SimpleNodeParser
+import httpx
+import requests
+
+# LlamaIndex / Qdrant
 from llama_index.core import StorageContext, VectorStoreIndex
+from llama_index.core.node_parser import SimpleNodeParser
+from llama_index.readers.file import PyMuPDFReader, PDFReader
+from llama_index.core.settings import Settings
+from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
 from qdrant_client.models import VectorParams, Distance, Filter, FieldCondition, MatchValue
-import tempfile
-import traceback
+from qdrant_client.http.exceptions import UnexpectedResponse
+
+# Project deps
 from ...db.session import get_db
-from ...db.models import Document, Topic, Module
-from ...core.config import settings
-from llama_index.core.settings import Settings
-from llama_index.embeddings.huggingface import HuggingFaceEmbedding
-import requests
+from ...db.models import Document, Topic
+from ...core.config import settings as app_settings
 
+# --------------------------------------------------------------------------------------
+# Router
+# --------------------------------------------------------------------------------------
 router = APIRouter()
-Settings.embed_model = HuggingFaceEmbedding(
-    model_name="BAAI/bge-large-en-v1.5"
-)
-EMBEDDING_DIM = 1024  # Para bge-large-en-v1.5
-UPLOAD_DIR = Path("uploads")
-UPLOAD_DIR.mkdir(exist_ok=True)
 
+# --------------------------------------------------------------------------------------
+# Global config
+# --------------------------------------------------------------------------------------
+# IMPORTANT: bge-large-en-v1.5 -> 1024 dims
+EMBED_MODEL_NAME = os.getenv("EMBED_MODEL", "BAAI/bge-large-en-v1.5")
+EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "1024"))
+
+# Make LlamaIndex use our embedding model (set once at import)
+Settings.embed_model = HuggingFaceEmbedding(model_name=EMBED_MODEL_NAME)
+
+# File storage
+UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "uploads"))
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+# Qdrant
+QDRANT_URL = app_settings.qdrant_url  # e.g. http://qdrant:6333
+QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "documents")
+QDRANT_DISTANCE = Distance.COSINE
+
+# Ollama
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")  # single source of truth
+
+# --------------------------------------------------------------------------------------
+# Helpers
+# --------------------------------------------------------------------------------------
+
+def _safe_filename(name: str) -> str:
+    # Drop any directory components (basic traversal mitigation)
+    return Path(name).name
+
+
+def _ensure_qdrant_collection(client: QdrantClient, *, recreate_if_dim_mismatch: bool = True) -> None:
+    try:
+        info = client.get_collection(QDRANT_COLLECTION)
+        size = info.config.params.vectors.size  # type: ignore[attr-defined]
+        if recreate_if_dim_mismatch and size != EMBEDDING_DIM:
+            # Keep it explicit — you may prefer to raise instead of recreating (data loss!)
+            raise ValueError(f"Found collection with dim {size} ≠ {EMBEDDING_DIM}")
+    except Exception:
+        client.recreate_collection(
+            collection_name=QDRANT_COLLECTION,
+            vectors_config=VectorParams(size=EMBEDDING_DIM, distance=QDRANT_DISTANCE),
+        )
+
+
+def _build_nodes_from_pdf_path(pdf_path: Path) -> List[str]:
+    # Use PDFReader for robust text extraction through LlamaIndex
+    reader = PDFReader()
+    documents = reader.load_data(str(pdf_path))
+    parser = SimpleNodeParser.from_defaults()
+    nodes = parser.get_nodes_from_documents(documents)
+    return [n.text for n in nodes]
+
+
+def _thumbnail_from_pdf(pdf_path: Path) -> str:
+    doc = fitz.open(pdf_path)
+    try:
+        page = doc.load_page(0)
+        pix = page.get_pixmap()
+        thumb_path = UPLOAD_DIR / f"{pdf_path.name}.png"
+        pix.save(thumb_path)
+        return str(thumb_path)
+    finally:
+        doc.close()
+
+
+def _index_nodes_in_qdrant(nodes, metadata: Dict[str, Any]):
+    client = QdrantClient(url=QDRANT_URL)
+    _ensure_qdrant_collection(client)
+
+    # Attach metadata to every node before indexing
+    for node in nodes:
+        md = dict(metadata)
+        # Preserve existing metadata if any
+        if getattr(node, "metadata", None):
+            md.update(node.metadata)
+        node.metadata = md
+
+    vector_store = QdrantVectorStore(client=client, collection_name=QDRANT_COLLECTION)
+    storage_context = StorageContext.from_defaults(vector_store=vector_store)
+    VectorStoreIndex(nodes, storage_context=storage_context)
+
+
+# --------------------------------------------------------------------------------------
+# Schemas
+# --------------------------------------------------------------------------------------
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+
+class ChatRequest(BaseModel):
+    model: str = Field(..., example="llama3")
+    messages: List[ChatMessage] = Field(..., example=[{"role": "user", "content": "Hola"}])
+    stream: bool = True
+    options: Optional[Dict[str, Any]] = None
+
+    @model_validator(mode="after")
+    def validate_messages(self):
+        if not self.messages:
+            raise ValueError("messages no puede estar vacío")
+        last = self.messages[-1]
+        if not isinstance(last, ChatMessage) or not last.content:
+            raise ValueError("El último mensaje debe tener 'content'")
+        return self
+
+
+# --------------------------------------------------------------------------------------
+# Files API
+# --------------------------------------------------------------------------------------
 @router.post("/files")
 async def upload_file(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    topic_id: int | None = None,
+    topic_id: Optional[int] = Query(None),
 ):
     try:
+        # Sanitize name and persist file
+        raw_name = _safe_filename(file.filename)
         content = await file.read()
-
-        path = UPLOAD_DIR / file.filename
+        path = UPLOAD_DIR / raw_name
         with open(path, "wb") as f:
             f.write(content)
 
-        thumb_path = None
+        thumb_path: Optional[str] = None
         chunks: List[str] = []
-        metadata = {"filename": file.filename, "source": str(path)}
+        metadata: Dict[str, Any] = {"filename": raw_name, "source": str(path)}
+        nodes = None
 
-        if file.filename.lower().endswith(".pdf"):
-            doc_pdf = fitz.open(path)
-            metadata["pages"] = doc_pdf.page_count
-            page = doc_pdf.load_page(0)
-            pix = page.get_pixmap()
-            thumb_path = f"uploads/{file.filename}.png"
-            pix.save(UPLOAD_DIR / f"{file.filename}.png")
-            doc_pdf.close()
+        # Topic (optional)
+        topic = db.get(Topic, topic_id) if topic_id is not None else None
+        if topic_id is not None and topic is None:
+            raise HTTPException(status_code=404, detail="Topic not found")
 
+        # PDF handling (thumbnail + chunking + prepare nodes)
+        if raw_name.lower().endswith(".pdf"):
+            # Thumbnail
+            thumb_path = _thumbnail_from_pdf(path)
+
+            # Chunking via LlamaIndex
             pdf_reader = PDFReader()
             documents = pdf_reader.load_data(str(path))
             parser = SimpleNodeParser.from_defaults()
             nodes = parser.get_nodes_from_documents(documents)
-            chunks = [node.text for node in nodes]
+            chunks = [n.text for n in nodes]
+            metadata["pages"] = fitz.open(path).page_count  # inexpensive reopen
 
-        if topic_id is not None:
-            topic = db.query(Topic).get(topic_id)
-            if not topic:
-                raise HTTPException(status_code=404, detail="Topic not found")
-        else:
-            topic = None
-
+        # Persist DB row
         doc_db = Document(
-            filename=file.filename,
+            filename=raw_name,
             filepath=str(path),
             thumbnail=thumb_path,
             file_metadata=metadata,
@@ -79,10 +193,10 @@ async def upload_file(
         db.commit()
         db.refresh(doc_db)
 
-        topic_name = topic.title if topic else None
-        module_name = topic.module.title if topic else None
-
-        if file.filename.lower().endswith(".pdf"):
+        # If we created nodes, attach richer metadata and index
+        if nodes is not None:
+            topic_name = topic.title if topic else None
+            module_name = topic.module.title if topic and topic.module else None
             for node in nodes:
                 node.metadata = {
                     "document_id": doc_db.id,
@@ -90,22 +204,12 @@ async def upload_file(
                     "topic": topic_name,
                     "module": module_name,
                 }
-
-            client = QdrantClient(url=settings.qdrant_url)
-            collection_name = "documents"
             try:
-                info = client.get_collection(collection_name)
-                if info.config.params.vectors.size != EMBEDDING_DIM:
-                    raise ValueError("Dim mismatch, recreating collection")
-            except Exception:
-                client.recreate_collection(
-                    collection_name=collection_name,
-                    vectors_config=VectorParams(size=EMBEDDING_DIM, distance=Distance.COSINE),
-                )
-
-            vector_store = QdrantVectorStore(client=client, collection_name=collection_name)
-            storage_context = StorageContext.from_defaults(vector_store=vector_store)
-            VectorStoreIndex(nodes, storage_context=storage_context)
+                _index_nodes_in_qdrant(nodes, metadata={})
+            except Exception as e:
+                # Do not rollback DB doc if vector indexing fails
+                traceback.print_exc()
+                raise HTTPException(status_code=500, detail=f"Error indexando en Qdrant: {e}")
 
         return {
             "id": doc_db.id,
@@ -116,35 +220,34 @@ async def upload_file(
             "topic_id": doc_db.topic_id,
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
-        print("❌ Error en /files:", e)
         traceback.print_exc()
-        raise HTTPException(status_code=400, detail=str(e))    
-    
-    
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.get("/files")
 async def list_files(db: Session = Depends(get_db)):
-    """List uploaded files."""
     docs = db.query(Document).all()
-    files = [
-        {
-            "id": doc.id,
-            "filename": doc.filename,
-            "thumbnail": doc.thumbnail,
-            "topic_id": doc.topic_id,
-        }
-        for doc in docs
-    ]
-    return {"files": files}
+    return {
+        "files": [
+            {
+                "id": d.id,
+                "filename": d.filename,
+                "thumbnail": d.thumbnail,
+                "topic_id": d.topic_id,
+            }
+            for d in docs
+        ]
+    }
 
 
 @router.get("/files/{doc_id}")
 async def get_file(doc_id: int, db: Session = Depends(get_db)):
-    """Return detailed information for a single document."""
-    doc = db.query(Document).get(doc_id)
+    doc = db.get(Document, doc_id)
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
-
     return {
         "id": doc.id,
         "filename": doc.filename,
@@ -158,30 +261,32 @@ async def get_file(doc_id: int, db: Session = Depends(get_db)):
 
 @router.delete("/files/{doc_id}")
 async def delete_file(doc_id: int, db: Session = Depends(get_db)):
-    """Delete a document and its files."""
-    doc = db.query(Document).get(doc_id)
-    print(doc)
+    doc = db.get(Document, doc_id)
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    if os.path.exists(doc.filepath):
-        os.remove(doc.filepath)
-    if doc.thumbnail and os.path.exists(doc.thumbnail):
-        os.remove(doc.thumbnail)
-
+    # Remove files on disk (ignore if missing)
     try:
-        client = QdrantClient(url=settings.qdrant_url)
-        qdrant_filter = Filter(
-            must=[FieldCondition(key="filename", match=MatchValue(value=doc.filename))]
-        )
-        client.delete(collection_name="documents", points_selector=qdrant_filter)
-        print('*********************')
-       
-        print('FILE DELETED|')
-    except Exception as e:
-        print("❌ Error deleting vectors from Qdrant:", e)
+        if doc.filepath and os.path.exists(doc.filepath):
+            os.remove(doc.filepath)
+        if doc.thumbnail and os.path.exists(doc.thumbnail):
+            os.remove(doc.thumbnail)
+    except Exception:
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail="Failed to delete from Qdrant")
+
+    # Remove vectors from Qdrant (by filename metadata)
+    try:
+        client = QdrantClient(url=QDRANT_URL)
+        _ensure_qdrant_collection(client, recreate_if_dim_mismatch=False)
+        q_filter = Filter(must=[FieldCondition(key="filename", match=MatchValue(value=doc.filename))])
+        # Newer clients accept `filter=`; older use `points_selector=`. We'll try filter first, fallback.
+        try:
+            client.delete(collection_name=QDRANT_COLLECTION, filter=q_filter)  # type: ignore[arg-type]
+        except TypeError:
+            client.delete(collection_name=QDRANT_COLLECTION, points_selector=q_filter)  # backward compat
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to delete from Qdrant: {e}")
 
     db.delete(doc)
     db.commit()
@@ -190,47 +295,44 @@ async def delete_file(doc_id: int, db: Session = Depends(get_db)):
 
 @router.put("/files/{doc_id}")
 async def rename_file(doc_id: int, new_name: str, db: Session = Depends(get_db)):
-    """Rename a stored document."""
-    doc = db.query(Document).get(doc_id)
+    doc = db.get(Document, doc_id)
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
 
+    new_name = _safe_filename(new_name)
     new_path = UPLOAD_DIR / new_name
     if new_path.exists():
         raise HTTPException(status_code=400, detail="Filename already exists")
 
     os.rename(doc.filepath, new_path)
-    doc.filepath = str(new_path)
     if doc.thumbnail:
         thumb_ext = Path(doc.thumbnail).suffix
         new_thumb = UPLOAD_DIR / f"{new_name}{thumb_ext}"
-        os.rename(doc.thumbnail, new_thumb)
+        if os.path.exists(doc.thumbnail):
+            os.rename(doc.thumbnail, new_thumb)
         doc.thumbnail = str(new_thumb)
 
+    # Update DB + metadata
     doc.filename = new_name
-    meta = doc.file_metadata or {}
+    doc.filepath = str(new_path)
+    meta = dict(doc.file_metadata or {})
     meta["filename"] = new_name
     meta["source"] = str(new_path)
     doc.file_metadata = meta
 
     db.commit()
     db.refresh(doc)
-    return {
-        "id": doc.id,
-        "filename": doc.filename,
-        "thumbnail": doc.thumbnail,
-        "topic_id": doc.topic_id,
-    }
+    return {"id": doc.id, "filename": doc.filename, "thumbnail": doc.thumbnail, "topic_id": doc.topic_id}
 
 
 @router.put("/files/{doc_id}/topic")
-async def set_file_topic(doc_id: int, topic_id: int | None, db: Session = Depends(get_db)):
-    doc = db.query(Document).get(doc_id)
+async def set_file_topic(doc_id: int, topic_id: Optional[int], db: Session = Depends(get_db)):
+    doc = db.get(Document, doc_id)
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
 
     if topic_id is not None:
-        topic = db.query(Topic).get(topic_id)
+        topic = db.get(Topic, topic_id)
         if not topic:
             raise HTTPException(status_code=404, detail="Topic not found")
 
@@ -243,98 +345,145 @@ async def set_file_topic(doc_id: int, topic_id: int | None, db: Session = Depend
 @router.post("/split_pdf")
 async def split_pdf(file: UploadFile = File(...)):
     """Return PDF chunks using LlamaIndex."""
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Solo se permiten archivos PDF")
     try:
         contents = await file.read()
-        pdf_reader = PDFReader()
-        documents = pdf_reader.load_data(BytesIO(contents))
+        reader = PDFReader()
+        documents = reader.load_data(BytesIO(contents))
         parser = SimpleNodeParser.from_defaults()
         nodes = parser.get_nodes_from_documents(documents)
         chunks = [node.text for node in nodes]
         return {"chunks": chunks}
     except Exception as e:
+        traceback.print_exc()
         raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/files_2")
 async def upload_and_split_pdf(file: UploadFile = File(...)):
-    if not file.filename.endswith(".pdf"):
+    if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Solo se permiten archivos PDF")
-
     try:
         content = await file.read()
-
-        # Escribir contenido a archivo temporal
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
             tmp.write(content)
             tmp_path = tmp.name
-
-        # Leer el PDF usando la ruta temporal
-        reader = PyMuPDFReader()
-        documents = reader.load_data(file_path=tmp_path)
-
-        # Dividir en chunks
-        parser = SimpleNodeParser()
-        nodes = parser.get_nodes_from_documents(documents)
-        chunks = [node.text for node in nodes]
-
-        return {"filename": file.filename, "chunks": chunks}
-
+        try:
+            reader = PyMuPDFReader()
+            documents = reader.load_data(file_path=tmp_path)
+            parser = SimpleNodeParser.from_defaults()
+            nodes = parser.get_nodes_from_documents(documents)
+            chunks = [node.text for node in nodes]
+            return {"filename": _safe_filename(file.filename), "chunks": chunks}
+        finally:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
     except Exception as e:
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
-        
-        raise HTTPException(status_code=400, detail=str(e))
 
 
+# --------------------------------------------------------------------------------------
+# Chat API (pass-through to Ollama)
+# --------------------------------------------------------------------------------------
 @router.post("/chat")
-async def chat(
-    payload: dict,
-    db: Session = Depends(get_db),
-):
-    print('payload****************')
-    print(payload)
-    """Simple RAG chat endpoint using Ollama as LLM."""
+async def chat(body: ChatRequest):
+    payload: Dict[str, Any] = {
+        "model": body.model,
+        "messages": [m.dict() for m in body.messages],
+        "stream": body.stream,
+    }
+    if body.options:
+        payload["options"] = body.options
+
+    if body.stream:
+        async def streamer():
+            async with httpx.AsyncClient(timeout=None) as client:
+                async with client.stream("POST", f"{OLLAMA_URL}/api/chat", json=payload) as resp:
+                    if resp.status_code == 404:
+                        raise HTTPException(502, detail="Ollama devolvió 404 en /api/chat. Revisa URL/puerto o versión.")
+                    if resp.status_code >= 400:
+                        text = await resp.aread()
+                        raise HTTPException(resp.status_code, detail=f"Error Ollama: {text.decode('utf-8','ignore')}")
+                    async for line in resp.aiter_lines():
+                        if line:
+                            yield line + "\n"
+        return StreamingResponse(streamer(), media_type="application/x-ndjson")
+    else:
+        async with httpx.AsyncClient(timeout=None) as client:
+            r = await client.post(f"{OLLAMA_URL}/api/chat", json=payload)
+            if r.status_code == 404:
+                raise HTTPException(502, detail="Ollama devolvió 404 en /api/chat. Revisa URL/puerto o versión.")
+            if r.status_code >= 400:
+                raise HTTPException(r.status_code, detail=f"Error Ollama: {r.text}")
+            return JSONResponse(content=r.json())
+
+
+# --------------------------------------------------------------------------------------
+# Simple RAG chat (retrieval optional if collection exists)
+# --------------------------------------------------------------------------------------
+@router.post("/chat_rag")
+async def chat_rag(payload: Dict[str, Any], db: Session = Depends(get_db)):
     question = payload.get("question") if isinstance(payload, dict) else None
     if not question:
         raise HTTPException(status_code=400, detail="Question required")
 
+    model_name = payload.get("model") or "llama3"
+
     try:
-        client = QdrantClient(url=settings.qdrant_url)
-        vector_store = QdrantVectorStore(client=client, collection_name="documents")
-        storage_context = StorageContext.from_defaults(vector_store=vector_store)
-        index = VectorStoreIndex.from_vector_store(vector_store=vector_store, storage_context=storage_context)
+        client = QdrantClient(url=QDRANT_URL)
+        collection_exists = True
+        try:
+            client.get_collection(QDRANT_COLLECTION)
+        except UnexpectedResponse as ex:
+            if getattr(ex, "status_code", None) == 404:
+                collection_exists = False
+            else:
+                raise
+        except Exception:
+            collection_exists = False
 
-        retriever = index.as_retriever(similarity_top_k=5)
-        nodes = retriever.retrieve(question)
+        nodes = []
+        if collection_exists:
+            vector_store = QdrantVectorStore(client=client, collection_name=QDRANT_COLLECTION)
+            storage_context = StorageContext.from_defaults(vector_store=vector_store)
+            index = VectorStoreIndex.from_vector_store(vector_store=vector_store, storage_context=storage_context)
+            retriever = index.as_retriever(similarity_top_k=5)
+            nodes = retriever.retrieve(question)
 
-        context = "\n".join([n.get_content() for n in nodes])
-        prompt = f"Contexto:\n{context}\n\nPregunta: {question}\nRespuesta:"
+        context = "\n".join([n.get_content() for n in nodes]) if nodes else ""
+        if context.strip():
+            prompt = f"Contexto:\n{context}\n\nPregunta: {question}\nRespuesta:"
+        else:
+            prompt = f"Pregunta: {question}\nRespuesta:"
 
-        response = requests.post(
-            "http://localhost:11434/api/generate",
-            json={"model": "llama3", "prompt": prompt, "stream": False},
+        resp = requests.post(
+            f"{OLLAMA_URL}/api/generate",
+            json={"model": model_name, "prompt": prompt, "stream": False},
             timeout=60,
         )
-        if response.status_code != 200:
-            raise HTTPException(status_code=500, detail=f"Ollama error: {response.text}")
+        if resp.status_code != 200:
+            raise HTTPException(status_code=500, detail=f"Ollama error: {resp.text}")
 
-        data = response.json()
+        data = resp.json()
         answer = data.get("response") or data.get("answer") or ""
-
         meta = [
             {
-                "document_id": n.metadata.get("document_id"),
-                "filename": n.metadata.get("filename"),
-                "topic": n.metadata.get("topic"),
-                "module": n.metadata.get("module"),
+                "document_id": (getattr(n, "metadata", {}) or {}).get("document_id"),
+                "filename": (getattr(n, "metadata", {}) or {}).get("filename"),
+                "topic": (getattr(n, "metadata", {}) or {}).get("topic"),
+                "module": (getattr(n, "metadata", {}) or {}).get("module"),
             }
             for n in nodes
-        ]
+        ] if nodes else []
 
-        return {"answer": answer, "chunks": meta}
+        return {"answer": answer, "chunks": meta, "used_rag": bool(nodes)}
 
     except HTTPException:
         raise
     except Exception as e:
-        print("❌ Error en /chat:", e)
         traceback.print_exc()
         raise HTTPException(status_code=400, detail=str(e))
