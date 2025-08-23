@@ -114,7 +114,7 @@ const _sendMesageToOllama = async (message: string) => {
     });
     store.addMessage({
       from: "ai",
-      text: response.data,
+      text: response.data.answer,
     });
     return response.data;
   } catch (error) {
