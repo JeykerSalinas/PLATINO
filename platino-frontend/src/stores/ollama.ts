@@ -4,6 +4,7 @@ import { ref } from "vue";
 export interface ChatMessage {
   from: "user" | "ai";
   text: string;
+  meta?: { chunks?: { filename: string; topic: string; module: string }[] };
 }
 
 export const useOllamaStore = defineStore("ollama", () => {

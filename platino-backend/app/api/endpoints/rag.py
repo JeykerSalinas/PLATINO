@@ -478,66 +478,130 @@ async def chat(
 # --------------------------------------------------------------------------------------
 # Simple RAG chat (retrieval optional if collection exists)
 # --------------------------------------------------------------------------------------
+# @router.post("/chat_rag")
+# async def chat_rag(payload: Dict[str, Any], db: Session = Depends(get_db)):
+#     question = payload.get("question") if isinstance(payload, dict) else None
+#     if not question:
+#         raise HTTPException(status_code=400, detail="Question required")
+
+#     model_name = "llama3.1:8b"
+
+#     try:
+#         client = QdrantClient(url=QDRANT_URL)
+#         collection_exists = True
+#         try:
+#             client.get_collection(QDRANT_COLLECTION)
+#         except UnexpectedResponse as ex:
+#             if getattr(ex, "status_code", None) == 404:
+#                 collection_exists = False
+#             else:
+#                 raise
+#         except Exception:
+#             collection_exists = False
+
+#         nodes = []
+#         if collection_exists:
+#             vector_store = QdrantVectorStore(client=client, collection_name=QDRANT_COLLECTION)
+#             storage_context = StorageContext.from_defaults(vector_store=vector_store)
+#             index = VectorStoreIndex.from_vector_store(vector_store=vector_store, storage_context=storage_context)
+#             retriever = index.as_retriever(similarity_top_k=5)
+#             nodes = retriever.retrieve(question)
+
+#         context = "\n".join([n.get_content() for n in nodes]) if nodes else ""
+#         if context.strip():
+#             prompt = f"Contexto:\n{context}\n\nPregunta: {question}\nRespuesta:"
+#         else:
+#             prompt = f"Pregunta: {question}\nRespuesta:"
+
+   
+#         resp = requests.post(
+#             f"{OLLAMA_URL}/api/generate",
+#             json={"model": model_name, "prompt": prompt, "stream": True, "options": {
+#                 "num_gpu": 1,
+#             }},
+#             timeout=(10, 600),
+#         )
+#         if resp.status_code != 200:
+#             raise HTTPException(status_code=500, detail=f"Ollama error: {resp.text}")
+
+#         data = resp.json()
+#         answer = data.get("response") or data.get("answer") or ""
+#         meta = [
+#             {
+#                 "document_id": (getattr(n, "metadata", {}) or {}).get("document_id"),
+#                 "filename": (getattr(n, "metadata", {}) or {}).get("filename"),
+#                 "topic": (getattr(n, "metadata", {}) or {}).get("topic"),
+#                 "module": (getattr(n, "metadata", {}) or {}).get("module"),
+#             }
+#             for n in nodes
+#         ] if nodes else []
+
+#         return {"answer": answer, "chunks": meta, "used_rag": bool(nodes)}
+
+#     except HTTPException:
+#         raise
+#     except Exception as e:
+#         traceback.print_exc()
+#         raise HTTPException(status_code=400, detail=str(e))
+
+
+from fastapi.responses import StreamingResponse
+import httpx
+import json
+
 @router.post("/chat_rag")
 async def chat_rag(payload: Dict[str, Any], db: Session = Depends(get_db)):
-    question = payload.get("question") if isinstance(payload, dict) else None
+    question = payload.get("question")
     if not question:
         raise HTTPException(status_code=400, detail="Question required")
 
-    model_name = "llama3.1:8b"
-
+    # --- retrieval idéntico al tuyo ---
+    client = QdrantClient(url=QDRANT_URL)
+    nodes = []
     try:
-        client = QdrantClient(url=QDRANT_URL)
-        collection_exists = True
-        try:
-            client.get_collection(QDRANT_COLLECTION)
-        except UnexpectedResponse as ex:
-            if getattr(ex, "status_code", None) == 404:
-                collection_exists = False
-            else:
-                raise
-        except Exception:
-            collection_exists = False
-
+        vector_store = QdrantVectorStore(client=client, collection_name=QDRANT_COLLECTION)
+        storage_context = StorageContext.from_defaults(vector_store=vector_store)
+        index = VectorStoreIndex.from_vector_store(vector_store=vector_store, storage_context=storage_context)
+        retriever = index.as_retriever(similarity_top_k=5)
+        nodes = retriever.retrieve(question)
+    except Exception:
         nodes = []
-        if collection_exists:
-            vector_store = QdrantVectorStore(client=client, collection_name=QDRANT_COLLECTION)
-            storage_context = StorageContext.from_defaults(vector_store=vector_store)
-            index = VectorStoreIndex.from_vector_store(vector_store=vector_store, storage_context=storage_context)
-            retriever = index.as_retriever(similarity_top_k=5)
-            nodes = retriever.retrieve(question)
 
-        context = "\n".join([n.get_content() for n in nodes]) if nodes else ""
-        if context.strip():
-            prompt = f"Contexto:\n{context}\n\nPregunta: {question}\nRespuesta:"
-        else:
-            prompt = f"Pregunta: {question}\nRespuesta:"
+    # Construcción de contexto + TRUNCADO (ver sección 3)
+    def _truncate(txt: str, max_chars=1200):  # evita prefill enorme
+        return txt[:max_chars]
+    context = "\n".join(_truncate(n.get_content()) for n in nodes) if nodes else ""
+    prompt = f"Contexto:\n{context}\n\nPregunta: {question}\nRespuesta:" if context.strip() else f"Pregunta: {question}\nRespuesta:"
 
-   
-        resp = requests.post(
-            f"{OLLAMA_URL}/api/generate",
-            json={"model": model_name, "prompt": prompt, "stream": True},
-            timeout=(10, 600),
-        )
-        if resp.status_code != 200:
-            raise HTTPException(status_code=500, detail=f"Ollama error: {resp.text}")
+    meta = [{
+        "document_id": (getattr(n, "metadata", {}) or {}).get("document_id"),
+        "filename":    (getattr(n, "metadata", {}) or {}).get("filename"),
+        "topic":       (getattr(n, "metadata", {}) or {}).get("topic"),
+        "module":      (getattr(n, "metadata", {}) or {}).get("module"),
+    } for n in nodes] if nodes else []
 
-        data = resp.json()
-        answer = data.get("response") or data.get("answer") or ""
-        meta = [
-            {
-                "document_id": (getattr(n, "metadata", {}) or {}).get("document_id"),
-                "filename": (getattr(n, "metadata", {}) or {}).get("filename"),
-                "topic": (getattr(n, "metadata", {}) or {}).get("topic"),
-                "module": (getattr(n, "metadata", {}) or {}).get("module"),
-            }
-            for n in nodes
-        ] if nodes else []
+    async def ndjson_generator():
+        yield json.dumps({"event": "meta", "data": {"chunks": meta, "used_rag": bool(nodes)}}) + "\n"
+        async with httpx.AsyncClient(timeout=None) as client_http:
+            async with client_http.stream(
+                "POST", f"{OLLAMA_URL}/api/generate",
+                json={
+                    "model": "llama3.1:8b",
+                    "prompt": prompt,
+                    "stream": True,
+                    "keep_alive": "30m",            # mantiene el modelo cargado
+                    "options": { "num_predict": 256 }
+                }
+            ) as resp:
+                if resp.status_code != 200:
+                    text = await resp.aread()
+                    # Propaga error como línea NDJSON para que el front lo muestre
+                    yield json.dumps({"event": "error", "data": text.decode("utf-8", "ignore")}) + "\n"
+                    return
+                async for line in resp.aiter_lines():
+                    if not line:
+                        continue
+                    # cada 'line' es un JSON con campos de Ollama (incluye 'response' incremental y 'done')
+                    yield line + "\n"
 
-        return {"answer": answer, "chunks": meta, "used_rag": bool(nodes)}
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        traceback.print_exc()
-        raise HTTPException(status_code=400, detail=str(e))
+    return StreamingResponse(ndjson_generator(), media_type="application/x-ndjson")
