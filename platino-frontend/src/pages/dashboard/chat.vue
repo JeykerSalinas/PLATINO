@@ -4,34 +4,55 @@
   >
     <div class="messages-container pt-4" ref="messagesContainer">
       <div v-if="messages.length > 0" class="messages-list">
-        <div
-          v-for="(msg, index) in messages"
-          :key="index"
-          class="mb-4"
-          :class="msg.from === 'user' ? ' user-message text-end' : 'ia-message'"
-        >
-          <span
+        <template v-for="(msg, index) in messages" :key="index">
+          <div
+            class="mb-1 d-flex"
             :class="
-              msg.from === 'user' ? 'bg-surface-light rounded-lg pa-4' : ''
+              msg.from === 'user'
+                ? ' user-message text-end justify-end'
+                : 'ia-message'
             "
           >
-            {{ msg.text }}
-          </span>
-          <!-- Opcional: fuentes del RAG (si guardaste meta en el mensaje) -->
-          <div v-if="msg.meta?.chunks?.length" class="text-caption mt-2">
+            <span
+              v-if="msg.from === 'user'"
+              class="bg-surface-light rounded-lg pa-4"
+            >
+              {{ msg.text }}
+            </span>
+            <div
+              v-else
+              class="markdown-body"
+              v-html="renderMarkdown(msg.text)"
+            ></div>
+            <!-- Opcional: fuentes del RAG (si guardaste meta en el mensaje) -->
+          </div>
+          <v-tooltip interactive>
+            <template v-slot:activator="{ props: activatorProps }">
+              <v-icon-btn
+                icon="mdi-information-outline"
+                v-bind="activatorProps"
+                v-if="msg.meta?.chunks?.length"
+              ></v-icon-btn>
+            </template>
             <strong>Fuentes:</strong>
-            <ul class="pl-4">
+            <ul class="pl-4" v-if="msg.meta?.chunks?.length">
               <li v-for="(s, i) in msg.meta.chunks" :key="i">
                 {{ s.filename || "documento" }}
                 <span v-if="s.topic"> — {{ s.topic }}</span>
                 <span v-if="s.module"> ({{ s.module }})</span>
               </li>
             </ul>
-          </div>
-        </div>
+          </v-tooltip>
+        </template>
       </div>
 
-      <div v-if="error" class="text-error">{{ error }}</div>
+      <div v-if="error">
+        <span
+          class="text-on-surface bg-red-accent-4 border border-red rounded-lg py-2 px-6 mr-3"
+        >
+          {{ error }}
+        </span>
+      </div>
     </div>
     <div class="mt-3 input-container">
       <spinner v-if="isLoading" />
@@ -50,6 +71,7 @@
         v-model="input"
         append-icon="mdi-send"
         label="Escribe tu mensaje"
+        :disabled="isLoading"
         @click:append="send"
         @dragover.prevent
         @drop.prevent="onDrop"
@@ -69,6 +91,7 @@ import {
   type OllamaChunk,
 } from "@/utils/ndjsonStream";
 import { useOllamaStore } from "@/stores/ollama";
+import { renderMarkdown } from "@/utils/md";
 // 👇 controlador global de cancelación
 let controller: AbortController | null = null;
 const messagesContainer = ref<HTMLElement | null>(null);
@@ -329,6 +352,19 @@ function cancel() {
     max-width: 66%;
     margin-left: auto;
   }
+}
+
+.markdown-body {
+  white-space: normal;
+  line-height: 1.55;
+}
+.markdown-body pre {
+  overflow: auto;
+  padding: 12px;
+  border-radius: 8px;
+}
+.markdown-body code {
+  padding: 0 4px;
 }
 </style>
 <route lang="yaml">
