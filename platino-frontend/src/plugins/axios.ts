@@ -3,6 +3,7 @@ import { useNotificationStore } from "@/stores/notifications";
 const apiUrl = import.meta.env.VITE_API_URL;
 const axiosInstance = axios.create({
   baseURL: apiUrl,
+  timeout: 10000000,
   // Aquí puedes añadir más configuraciones como headers por defecto
 });
 

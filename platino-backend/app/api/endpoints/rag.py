@@ -49,7 +49,7 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 # Qdrant
 QDRANT_URL = app_settings.qdrant_url  # e.g. http://qdrant:6333
-QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "documents")
+QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "documents_384")
 QDRANT_DISTANCE = Distance.COSINE
 
 # Ollama
@@ -390,36 +390,89 @@ async def upload_and_split_pdf(file: UploadFile = File(...)):
 # Chat API (pass-through to Ollama)
 # --------------------------------------------------------------------------------------
 @router.post("/chat")
-async def chat(body: ChatRequest):
-    payload: Dict[str, Any] = {
-        "model": body.model,
-        "messages": [m.dict() for m in body.messages],
-        "stream": body.stream,
-    }
-    if body.options:
-        payload["options"] = body.options
+async def chat(
+    payload: dict,
+    db: Session = Depends(get_db),
+):
+    print('payload****************')
+    print(payload)
+    """Simple RAG chat endpoint using Ollama as LLM."""
+    question = payload.get("question") if isinstance(payload, dict) else None
+    if not question:
+        raise HTTPException(status_code=400, detail="Question required")
 
-    if body.stream:
-        async def streamer():
-            async with httpx.AsyncClient(timeout=None) as client:
-                async with client.stream("POST", f"{OLLAMA_URL}/api/chat", json=payload) as resp:
-                    if resp.status_code == 404:
-                        raise HTTPException(502, detail="Ollama devolvió 404 en /api/chat. Revisa URL/puerto o versión.")
-                    if resp.status_code >= 400:
-                        text = await resp.aread()
-                        raise HTTPException(resp.status_code, detail=f"Error Ollama: {text.decode('utf-8','ignore')}")
-                    async for line in resp.aiter_lines():
-                        if line:
-                            yield line + "\n"
-        return StreamingResponse(streamer(), media_type="application/x-ndjson")
-    else:
-        async with httpx.AsyncClient(timeout=None) as client:
-            r = await client.post(f"{OLLAMA_URL}/api/chat", json=payload)
-            if r.status_code == 404:
-                raise HTTPException(502, detail="Ollama devolvió 404 en /api/chat. Revisa URL/puerto o versión.")
-            if r.status_code >= 400:
-                raise HTTPException(r.status_code, detail=f"Error Ollama: {r.text}")
-            return JSONResponse(content=r.json())
+    try:
+        client = QdrantClient(url=QDRANT_URL)
+        vector_store = QdrantVectorStore(client=client, collection_name=QDRANT_COLLECTION)
+        storage_context = StorageContext.from_defaults(vector_store=vector_store)
+        index = VectorStoreIndex.from_vector_store(vector_store=vector_store, storage_context=storage_context)
+
+        retriever = index.as_retriever(similarity_top_k=5)
+        nodes = retriever.retrieve(question)
+
+        context = "\n".join([n.get_content() for n in nodes])
+        prompt = f"Contexto:\n{context}\n\nPregunta: {question}\nRespuesta:"
+
+        response = requests.post(
+            "http://localhost:11434/api/generate",
+            json={"model": "llama3", "prompt": prompt, "stream": False},
+            timeout=60,
+        )
+        if response.status_code != 200:
+            raise HTTPException(status_code=500, detail=f"Ollama error: {response.text}")
+
+        data = response.json()
+        answer = data.get("response") or data.get("answer") or ""
+
+        meta = [
+            {
+                "document_id": n.metadata.get("document_id"),
+                "filename": n.metadata.get("filename"),
+                "topic": n.metadata.get("topic"),
+                "module": n.metadata.get("module"),
+            }
+            for n in nodes
+        ]
+
+        return {"answer": answer, "chunks": meta}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print("❌ Error en /chat:", e)
+        traceback.print_exc()
+        raise HTTPException(status_code=400, detail=str(e))
+# @router.post("/chat")
+# async def chat(body: ChatRequest):
+#     payload: Dict[str, Any] = {
+#         "model": body.model,
+#         "messages": [m.dict() for m in body.messages],
+#         "stream": body.stream,
+#     }
+#     if body.options:
+#         payload["options"] = body.options
+
+#     if body.stream:
+#         async def streamer():
+#             async with httpx.AsyncClient(timeout=None) as client:
+#                 async with client.stream("POST", f"{OLLAMA_URL}/api/chat", json=payload) as resp:
+#                     if resp.status_code == 404:
+#                         raise HTTPException(502, detail="Ollama devolvió 404 en /api/chat. Revisa URL/puerto o versión.")
+#                     if resp.status_code >= 400:
+#                         text = await resp.aread()
+#                         raise HTTPException(resp.status_code, detail=f"Error Ollama: {text.decode('utf-8','ignore')}")
+#                     async for line in resp.aiter_lines():
+#                         if line:
+#                             yield line + "\n"
+#         return StreamingResponse(streamer(), media_type="application/x-ndjson")
+#     else:
+#         async with httpx.AsyncClient(timeout=None) as client:
+#             r = await client.post(f"{OLLAMA_URL}/api/chat", json=payload)
+#             if r.status_code == 404:
+#                 raise HTTPException(502, detail="Ollama devolvió 404 en /api/chat. Revisa URL/puerto o versión.")
+#             if r.status_code >= 400:
+#                 raise HTTPException(r.status_code, detail=f"Error Ollama: {r.text}")
+#             return JSONResponse(content=r.json())
 
 
 # --------------------------------------------------------------------------------------
@@ -431,7 +484,7 @@ async def chat_rag(payload: Dict[str, Any], db: Session = Depends(get_db)):
     if not question:
         raise HTTPException(status_code=400, detail="Question required")
 
-    model_name = payload.get("model") or "llama3"
+    model_name = "llama3.1:8b"
 
     try:
         client = QdrantClient(url=QDRANT_URL)
@@ -460,10 +513,11 @@ async def chat_rag(payload: Dict[str, Any], db: Session = Depends(get_db)):
         else:
             prompt = f"Pregunta: {question}\nRespuesta:"
 
+   
         resp = requests.post(
             f"{OLLAMA_URL}/api/generate",
-            json={"model": model_name, "prompt": prompt, "stream": False},
-            timeout=60,
+            json={"model": model_name, "prompt": prompt, "stream": True},
+            timeout=(10, 600),
         )
         if resp.status_code != 200:
             raise HTTPException(status_code=500, detail=f"Ollama error: {resp.text}")

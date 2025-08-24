@@ -61,8 +61,8 @@ services:
     ports:
       - "${FRONTEND_PORT:-5173}:5173"
     environment:
-      - VITE_API_URL=http://backend:${BACKEND_PORT:-8000}
-      - VITE_OLLAMA_URL=http://ollama:11434
+      - VITE_API_URL=http://localhost:8000
+      - VITE_OLLAMA_URL=http://localhost:11434
     depends_on:
       - backend
       - ollama

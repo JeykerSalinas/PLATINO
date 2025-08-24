@@ -107,14 +107,16 @@ const OLLAMA_URL = import.meta.env.VITE_OLLAMA_URL || "http://localhost:11434";
 
 const _sendMesageToOllama = async (message: string) => {
   try {
-    const response = await axios.post(`api/chat`, {
-      model: "llama3",
-      question: message,
+    const response = await axios.post(`api/chat_rag`, {
+      messages: [
+        { role: "user", content: message }, // o content: [{type:"text", text:"Hola"}] según tu API
+      ],
       stream: true,
+      question: message,
     });
     store.addMessage({
       from: "ai",
-      text: response.data,
+      text: response.data.answer,
     });
     return response.data;
   } catch (error) {
