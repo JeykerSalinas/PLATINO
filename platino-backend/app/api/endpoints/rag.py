@@ -37,8 +37,8 @@ router = APIRouter()
 # Global config
 # --------------------------------------------------------------------------------------
 # IMPORTANT: bge-large-en-v1.5 -> 1024 dims
-EMBED_MODEL_NAME = os.getenv("EMBED_MODEL", "BAAI/bge-large-en-v1.5")
-EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "1024"))
+EMBED_MODEL_NAME = os.getenv("EMBED_MODEL", "BAAI/bge-small-en-v1.5")
+EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "384"))
 
 # Make LlamaIndex use our embedding model (set once at import)
 Settings.embed_model = HuggingFaceEmbedding(model_name=EMBED_MODEL_NAME)
