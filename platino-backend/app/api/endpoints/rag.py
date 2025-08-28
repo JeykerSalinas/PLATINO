@@ -50,6 +50,7 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 QDRANT_URL = app_settings.qdrant_url  # e.g. http://qdrant:6333
 QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "documents_384")
 QDRANT_DISTANCE = Distance.COSINE
+RAG_SIMILARITY_THRESHOLD = float(os.getenv("RAG_SIMILARITY_THRESHOLD", "0.6"))
 
 # Ollama
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")  # single source of truth
@@ -554,7 +555,7 @@ async def chat_rag(payload: Dict[str, Any], db: Session = Depends(get_db)):
     if not question:
         raise HTTPException(status_code=400, detail="Question required")
 
-    # --- retrieval idéntico al tuyo ---
+    # --- retrieval ---
     client = QdrantClient(url=QDRANT_URL)
     nodes = []
     try:
@@ -562,61 +563,70 @@ async def chat_rag(payload: Dict[str, Any], db: Session = Depends(get_db)):
         storage_context = StorageContext.from_defaults(vector_store=vector_store)
         index = VectorStoreIndex.from_vector_store(vector_store=vector_store, storage_context=storage_context)
         retriever = index.as_retriever(similarity_top_k=5)
-        nodes = retriever.retrieve(question)
+        retrieved = retriever.retrieve(question)
+        nodes = [n for n in retrieved if getattr(n, "score", 0) >= RAG_SIMILARITY_THRESHOLD]
     except Exception:
         nodes = []
 
-    # Construcción de contexto + TRUNCADO (ver sección 3)
-    # --- construir instrucciones + contexto + pregunta ---
-    INSTRUCCIONES = """
+    BASE_INSTRUCCIONES = """
     Eres un asistente para estudiantes de historia del arte.
     Responde SIEMPRE en **Markdown** (títulos, listas, énfasis cuando ayude; nada de HTML).
+    No inventes datos ni referencias.
+    Responde de forma breve primero (resumen en 1–3 frases) y luego desarrolla si procede.
+    """
+
+    if nodes:
+        INSTRUCCIONES = BASE_INSTRUCCIONES + """
     Política de uso de contexto:
     - Si el contexto es RELEVANTE para la pregunta, úsalo para fundamentar.
     - Si el contexto NO es relevante o está vacío, responde con conocimiento general, sin disculparte ni mencionar que falta contexto.
     Citas:
     - Si usaste el contexto, al final añade una sección de nivel 3 llamada "### Fuentes" con una lista de viñetas de las fuentes (usa exactamente los nombres de archivo que te doy).
     - Si NO usaste contexto, NO añadas la sección de fuentes.
-    No inventes datos ni referencias.
-    Responde de forma breve primero (resumen en 1–3 frases) y luego desarrolla si procede.
     """
 
-    # Construcción del contexto textual (puedes mantener tu truncado si quieres)
-    def _truncate(txt: str, max_chars=1200):
-        return txt[:max_chars]
-    context_text = "\n\n".join(_truncate(n.get_content()) for n in nodes) if nodes else ""
+        def _truncate(txt: str, max_chars=1200):
+            return txt[:max_chars]
+        context_text = "\n\n".join(_truncate(n.get_content()) for n in nodes)
 
-    # Lista de fuentes (únicas) para que el modelo las copie tal cual si usa el contexto
-    raw_meta = [{
-        "document_id": (getattr(n, "metadata", {}) or {}).get("document_id"),
-        "filename":    (getattr(n, "metadata", {}) or {}).get("filename"),
-        "topic":       (getattr(n, "metadata", {}) or {}).get("topic"),
-        "module":      (getattr(n, "metadata", {}) or {}).get("module"),
-    } for n in nodes] if nodes else []
-    seen = set()
-    meta = []
-    for m in raw_meta:
-        key = (m["document_id"], m["filename"])
-        if key not in seen:
-            seen.add(key)
-            meta.append(m)
+        raw_meta = [{
+            "document_id": (getattr(n, "metadata", {}) or {}).get("document_id"),
+            "filename":    (getattr(n, "metadata", {}) or {}).get("filename"),
+            "topic":       (getattr(n, "metadata", {}) or {}).get("topic"),
+            "module":      (getattr(n, "metadata", {}) or {}).get("module"),
+        } for n in nodes]
+        seen = set()
+        meta = []
+        for m in raw_meta:
+            key = (m["document_id"], m["filename"])
+            if key not in seen:
+                seen.add(key)
+                meta.append(m)
 
-    fuentes_md = "\n".join(f"- {m['filename']}" for m in meta)
+        fuentes_md = "\n".join(f"- {m['filename']}" for m in meta)
 
-    prompt = f"""{INSTRUCCIONES}
+        prompt = f"""{INSTRUCCIONES}
 
     ### Contexto (opcional)
-    {context_text if context_text.strip() else "(sin contexto relevante)"}
+    {context_text}
 
     ### Fuentes disponibles (para citar si usas el contexto)
-    {fuentes_md if fuentes_md else "- (ninguna)"}
+    {fuentes_md}
 
     ### Pregunta
     {question}
 
     ### Respuesta (en Markdown)
     """
+    else:
+        meta = []
+        prompt = f"""{BASE_INSTRUCCIONES}
 
+    ### Pregunta
+    {question}
+
+    ### Respuesta (en Markdown)
+    """
 
     async def ndjson_generator():
         yield json.dumps({"event": "meta", "data": {"chunks": meta, "used_rag": bool(nodes)}}) + "\n"
@@ -633,13 +643,11 @@ async def chat_rag(payload: Dict[str, Any], db: Session = Depends(get_db)):
             ) as resp:
                 if resp.status_code != 200:
                     text = await resp.aread()
-                    # Propaga error como línea NDJSON para que el front lo muestre
                     yield json.dumps({"event": "error", "data": text.decode("utf-8", "ignore")}) + "\n"
                     return
                 async for line in resp.aiter_lines():
                     if not line:
                         continue
-                    # cada 'line' es un JSON con campos de Ollama (incluye 'response' incremental y 'done')
                     yield line + "\n"
 
     return StreamingResponse(ndjson_generator(), media_type="application/x-ndjson")

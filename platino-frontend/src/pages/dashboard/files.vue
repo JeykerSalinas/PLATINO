@@ -122,7 +122,7 @@
                           height="90"
                           width="120"
                           cover
-                          :src="`${apiUrl}${doc.thumbnail}`"
+                          :src="`${apiUrl}/${doc.thumbnail}`"
                         />
                       </template>
                       <template v-else>
@@ -221,7 +221,7 @@
           <v-col cols="12" sm="6">
             <iframe
               v-if="isPdf(selectedDoc.filename)"
-              :src="`${apiUrl}${selectedDoc.filepath}`"
+              :src="`${apiUrl}/${selectedDoc.filepath}`"
               style="width: 100%; height: 75vh"
             ></iframe>
             <div
