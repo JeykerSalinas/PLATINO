@@ -50,7 +50,7 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 QDRANT_URL = app_settings.qdrant_url  # e.g. http://qdrant:6333
 QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "documents_384")
 QDRANT_DISTANCE = Distance.COSINE
-RAG_SIMILARITY_THRESHOLD = float(os.getenv("RAG_SIMILARITY_THRESHOLD", "0.8"))
+RAG_SIMILARITY_THRESHOLD = float(os.getenv("RAG_SIMILARITY_THRESHOLD", "0.6"))
 
 # Ollama
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")  # single source of truth
