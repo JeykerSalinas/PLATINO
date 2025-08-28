@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Query
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Query, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.orm import Session
@@ -549,7 +549,11 @@ import httpx
 import json
 
 @router.post("/chat_rag")
-async def chat_rag(payload: Dict[str, Any], db: Session = Depends(get_db)):
+async def chat_rag(
+    payload: Dict[str, Any],
+    request: Request,
+    db: Session = Depends(get_db),
+):
     question = payload.get("question")
     if not question:
         raise HTTPException(status_code=400, detail="Question required")
@@ -622,14 +626,15 @@ async def chat_rag(payload: Dict[str, Any], db: Session = Depends(get_db)):
         yield json.dumps({"event": "meta", "data": {"chunks": meta, "used_rag": bool(nodes)}}) + "\n"
         async with httpx.AsyncClient(timeout=None) as client_http:
             async with client_http.stream(
-                "POST", f"{OLLAMA_URL}/api/generate",
+                "POST",
+                f"{OLLAMA_URL}/api/generate",
                 json={
                     "model": "llama3.1:8b",
                     "prompt": prompt,
                     "stream": True,
-                    "keep_alive": "30m",            # mantiene el modelo cargado
-                    "options": { "num_predict": 256,"num_gpu": 1  }
-                }
+                    "keep_alive": "30m",  # mantiene el modelo cargado
+                    "options": {"num_predict": 256, "num_gpu": 1},
+                },
             ) as resp:
                 if resp.status_code != 200:
                     text = await resp.aread()
@@ -637,6 +642,8 @@ async def chat_rag(payload: Dict[str, Any], db: Session = Depends(get_db)):
                     yield json.dumps({"event": "error", "data": text.decode("utf-8", "ignore")}) + "\n"
                     return
                 async for line in resp.aiter_lines():
+                    if await request.is_disconnected():
+                        break
                     if not line:
                         continue
                     # cada 'line' es un JSON con campos de Ollama (incluye 'response' incremental y 'done')
