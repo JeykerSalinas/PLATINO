@@ -2,9 +2,14 @@ from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 from ...db.session import get_db
 from ...db.models import Module, Topic
-
+from qdrant_client import QdrantClient
+from qdrant_client.models import Filter, FieldCondition, MatchValue
+from ...core.config import settings as app_settings
+from llama_index.vector_stores.qdrant import QdrantVectorStore
+import os
 router = APIRouter()
-
+QDRANT_URL = app_settings.qdrant_url
+QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "documents_384")
 @router.post("/modules")
 def create_module(title: str, db: Session = Depends(get_db)):
     module = Module(title=title)
@@ -28,12 +33,28 @@ def update_module(module_id: int, title: str, db: Session = Depends(get_db)):
     db.refresh(module)
     return {"id": module.id, "title": module.title}
 
-
 @router.delete("/modules/{module_id}")
 def delete_module(module_id: int, db: Session = Depends(get_db)):
     module = db.query(Module).get(module_id)
     if not module:
         raise HTTPException(status_code=404, detail="Module not found")
+
+    # 1) Borrado en Qdrant por metadato module_id
+    try:
+        client = QdrantClient(url=QDRANT_URL)
+        # si no existe la colección, esto fallará suave
+        q_filter = Filter(must=[
+            FieldCondition(key="module_id", match=MatchValue(value=module_id))
+        ])
+        try:
+            client.delete(collection_name=QDRANT_COLLECTION, filter=q_filter)  # clientes recientes
+        except TypeError:
+            client.delete(collection_name=QDRANT_COLLECTION, points_selector=q_filter)  # compat
+    except Exception as e:
+        # No impide continuar con SQL; registra el error si quieres
+        print(f"[WARN] Fallo borrando en Qdrant módulo {module_id}: {e}")
+
+    # 2) Borrado en SQL
     db.delete(module)
     db.commit()
     return {"status": "deleted"}
@@ -74,6 +95,21 @@ def delete_topic(topic_id: int, db: Session = Depends(get_db)):
     topic = db.query(Topic).get(topic_id)
     if not topic:
         raise HTTPException(status_code=404, detail="Topic not found")
+    # 1) Borrado en Qdrant por metadato topic_id
+    try:
+        client = QdrantClient(url=QDRANT_URL)
+        # si no existe la colección, esto fallará suave
+        q_filter = Filter(must=[
+            FieldCondition(key="topic_id", match=MatchValue(value=topic_id))
+        ])
+        try:
+            client.delete(collection_name=QDRANT_COLLECTION, filter=q_filter)  # clientes recientes
+        except TypeError:
+            client.delete(collection_name=QDRANT_COLLECTION, points_selector=q_filter)  # compat
+    except Exception as e:
+        # No impide continuar con SQL; registra el error si quieres
+        print(f"[WARN] Fallo borrando en Qdrant módulo {topic_id}: {e}")
+
     db.delete(topic)
     db.commit()
     return {"status": "deleted"}

@@ -10,7 +10,11 @@ services:
       - ollama_models:/root/.ollama
     restart: unless-stopped
     command: ["serve"]
-
+    environment:
+      - OLLAMA_KEEP_ALIVE=30m
+    # 👇 HABILITA GPU (Compose v2+ con NVIDIA toolkit instalado)
+    gpus: all
+  
   db:
     image: postgres:15
     container_name: platino-db
