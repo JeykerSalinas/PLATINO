@@ -15,12 +15,15 @@ import requests
 # LlamaIndex / Qdrant
 from llama_index.core import StorageContext, VectorStoreIndex
 from llama_index.core.node_parser import SimpleNodeParser
+from llama_index.core.node_parser import SentenceSplitter
+
+
 from llama_index.readers.file import PyMuPDFReader, PDFReader
 from llama_index.core.settings import Settings
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
-from qdrant_client.models import VectorParams, Distance, Filter, FieldCondition, MatchValue
+from qdrant_client.models import VectorParams, Distance, Filter, FieldCondition, MatchValue, HnswConfigDiff, PayloadSchemaType
 from qdrant_client.http.exceptions import UnexpectedResponse
 
 # Project deps
@@ -63,7 +66,6 @@ def _safe_filename(name: str) -> str:
     # Drop any directory components (basic traversal mitigation)
     return Path(name).name
 
-
 def _ensure_qdrant_collection(client: QdrantClient, *, recreate_if_dim_mismatch: bool = True) -> None:
     try:
         info = client.get_collection(QDRANT_COLLECTION)
@@ -75,17 +77,11 @@ def _ensure_qdrant_collection(client: QdrantClient, *, recreate_if_dim_mismatch:
         client.recreate_collection(
             collection_name=QDRANT_COLLECTION,
             vectors_config=VectorParams(size=EMBEDDING_DIM, distance=QDRANT_DISTANCE),
+            hnsw_config=HnswConfigDiff(m=16, ef_construct=128),
         )
-
-
-def _build_nodes_from_pdf_path(pdf_path: Path) -> List[str]:
-    # Use PDFReader for robust text extraction through LlamaIndex
-    reader = PDFReader()
-    documents = reader.load_data(str(pdf_path))
-    parser = SimpleNodeParser.from_defaults()
-    nodes = parser.get_nodes_from_documents(documents)
-    return [n.text for n in nodes]
-
+        client.create_payload_index(QDRANT_COLLECTION, field_name="topic", field_schema=PayloadSchemaType.KEYWORD)
+        client.create_payload_index(QDRANT_COLLECTION, field_name="module", field_schema=PayloadSchemaType.KEYWORD)
+        client.create_payload_index(QDRANT_COLLECTION, field_name="filename",  field_schema=PayloadSchemaType.KEYWORD)
 
 def _thumbnail_from_pdf(pdf_path: Path) -> str:
     doc = fitz.open(pdf_path)
@@ -97,7 +93,6 @@ def _thumbnail_from_pdf(pdf_path: Path) -> str:
         return str(thumb_path)
     finally:
         doc.close()
-
 
 def _index_nodes_in_qdrant(nodes, metadata: Dict[str, Any]):
     client = QdrantClient(url=QDRANT_URL)
@@ -175,9 +170,10 @@ async def upload_file(
             # Chunking via LlamaIndex
             pdf_reader = PDFReader()
             documents = pdf_reader.load_data(str(path))
-            parser = SimpleNodeParser.from_defaults()
-            nodes = parser.get_nodes_from_documents(documents)
-            chunks = [n.text for n in nodes]
+            splitter = SentenceSplitter(chunk_size=1000, chunk_overlap=150)  # ≈15% solape
+
+            nodes = splitter.get_nodes_from_documents(documents)
+            chunks = [n.get_content() for n in nodes]
             metadata["pages"] = fitz.open(path).page_count  # inexpensive reopen
 
         # Persist DB row
@@ -203,6 +199,8 @@ async def upload_file(
                     "module_id": topic.module.id if (topic and topic.module) else None,
                     "topic": topic.title if topic else None,
                     "module": topic.module.title if (topic and topic.module) else None,
+                    "page_start": node.metadata.get("page_label") or node.metadata.get("page_start"),
+                    "page_end": node.metadata.get("page_label") or node.metadata.get("page_end")
                 }
             try:
                 _index_nodes_in_qdrant(nodes, metadata={})
@@ -340,50 +338,6 @@ async def set_file_topic(doc_id: int, topic_id: Optional[int], db: Session = Dep
     db.commit()
     db.refresh(doc)
     return {"id": doc.id, "topic_id": doc.topic_id}
-
-
-@router.post("/split_pdf")
-async def split_pdf(file: UploadFile = File(...)):
-    """Return PDF chunks using LlamaIndex."""
-    if not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Solo se permiten archivos PDF")
-    try:
-        contents = await file.read()
-        reader = PDFReader()
-        documents = reader.load_data(BytesIO(contents))
-        parser = SimpleNodeParser.from_defaults()
-        nodes = parser.get_nodes_from_documents(documents)
-        chunks = [node.text for node in nodes]
-        return {"chunks": chunks}
-    except Exception as e:
-        traceback.print_exc()
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-@router.post("/files_2")
-async def upload_and_split_pdf(file: UploadFile = File(...)):
-    if not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Solo se permiten archivos PDF")
-    try:
-        content = await file.read()
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-            tmp.write(content)
-            tmp_path = tmp.name
-        try:
-            reader = PyMuPDFReader()
-            documents = reader.load_data(file_path=tmp_path)
-            parser = SimpleNodeParser.from_defaults()
-            nodes = parser.get_nodes_from_documents(documents)
-            chunks = [node.text for node in nodes]
-            return {"filename": _safe_filename(file.filename), "chunks": chunks}
-        finally:
-            try:
-                os.remove(tmp_path)
-            except OSError:
-                pass
-    except Exception as e:
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 # --------------------------------------------------------------------------------------
