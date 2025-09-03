@@ -31,6 +31,19 @@ from ...db.session import get_db
 from ...db.models import Document, Topic
 from ...core.config import settings as app_settings
 
+#Embedding wrapper
+from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+from llama_index.core.embeddings import BaseEmbedding
+
+class E5Embedding(HuggingFaceEmbedding):
+    def get_text_embedding(self, text: str):
+        # documentos / pasajes
+        return super().get_text_embedding(f"passage: {text}")
+
+    def get_query_embedding(self, query: str):
+        # consultas
+        return super().get_query_embedding(f"query: {query}")
+
 # --------------------------------------------------------------------------------------
 # Router
 # --------------------------------------------------------------------------------------
@@ -39,11 +52,13 @@ router = APIRouter()
 # --------------------------------------------------------------------------------------
 # Global config
 # --------------------------------------------------------------------------------------
-EMBED_MODEL_NAME = os.getenv("EMBED_MODEL", "BAAI/bge-small-en-v1.5")
+# EMBED_MODEL_NAME = os.getenv("EMBED_MODEL", "BAAI/bge-small-en-v1.5")
+EMBED_MODEL="intfloat/multilingual-e5-small"
 EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "384"))
 
 # Make LlamaIndex use our embedding model (set once at import)
-Settings.embed_model = HuggingFaceEmbedding(model_name=EMBED_MODEL_NAME)
+# Settings.embed_model = HuggingFaceEmbedding(model_name=EMBED_MODEL_NAME)
+Settings.embed_model = E5Embedding(model_name=EMBED_MODEL)
 
 # File storage
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "uploads"))
@@ -51,12 +66,18 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 # Qdrant
 QDRANT_URL = app_settings.qdrant_url  # e.g. http://qdrant:6333
-QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "documents_384")
+# QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "documents_384")
+QDRANT_COLLECTION="documents_e5_384"
 QDRANT_DISTANCE = Distance.COSINE
 RAG_SIMILARITY_THRESHOLD = float(os.getenv("RAG_SIMILARITY_THRESHOLD", "0.6"))
 
 # Ollama
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")  # single source of truth
+
+#Variables de inferencia
+MAX_NEW_TOKENS = int(os.getenv("MAX_NEW_TOKENS", "1024"))  # o 2048 / -1 (sin límite)
+NUM_CTX        = int(os.getenv("NUM_CTX", "8192"))         # según el modelo (p.ej., 8192 o 32768)
+READ_TIMEOUT_S = int(os.getenv("READ_TIMEOUT_S", "600"))
 
 # --------------------------------------------------------------------------------------
 # Helpers
@@ -597,7 +618,13 @@ async def chat_rag(
                     "prompt": prompt,
                     "stream": True,
                     "keep_alive": "30m",  # mantiene el modelo cargado
-                    "options": {"num_predict": 256, "num_gpu": 1},
+                    "options": {"num_predict": 256, },
+                    "options": {
+                        "num_predict": MAX_NEW_TOKENS,  # más tokens de salida
+                        "num_ctx": NUM_CTX,             # más contexto para caber contexto+respuesta
+                        "repeat_penalty": 1.1,           # opcional: evita bucles al alargar salidas
+                        "num_gpu": 1
+                    }
                 },
             ) as resp:
                 if resp.status_code != 200:
