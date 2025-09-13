@@ -1,10 +1,20 @@
-# platino-backend/Dockerfile
+# platino-backend/Dockerfile  (parche mínimo)
 FROM python:3.11
+
+# ↑ Sin cambiar de base. Solo añadimos opciones robustas de pip.
+ENV PIP_DEFAULT_TIMEOUT=180 \
+    PIP_PROGRESS_BAR=off \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Config global de pip: preferir wheels y setear timeout por defecto
+# (pip.conf global; pip respeta este archivo según docs)
+RUN mkdir -p /etc/xdg/pip && printf "[global]\nprefer-binary = true\ntimeout = 180\n" > /etc/xdg/pip/pip.conf
 
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Mantengo --no-cache-dir como lo tenías; solo añado prefer-binary y timeout explícito
+RUN pip install --no-cache-dir --prefer-binary --default-timeout=180 -r requirements.txt
 
 COPY . .
 

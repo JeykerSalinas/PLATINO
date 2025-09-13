@@ -11,3 +11,15 @@ python-multipart
 qdrant-client
 llama-index-vector-stores-qdrant
 llama-index-embeddings-huggingface
+bertopic==0.16.0
+
+
+# --- métricas de evaluación ---
+scikit-learn>=1.4
+sacrebleu>=2.4
+rouge-score>=0.1.2
+
+# --- opcionales útiles ---
+# evaluate>=0.4.1        # si prefieres métricas vía Hugging Face
+# python-dotenv>=1.0.1   # si cargas variables de entorno desde .env
+# orjson>=3.9            # JSON rápido (opcional)

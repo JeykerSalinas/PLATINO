@@ -26,23 +26,23 @@
             />
             <!-- Opcional: fuentes del RAG (si guardaste meta en el mensaje) -->
           </div>
-          <v-tooltip interactive>
+          <!-- <v-tooltip interactive>
             <template #activator="{ props: activatorProps }">
-              <v-icon-btn
-                v-if="msg.meta?.chunks?.length"
+              <v-icon
+                v-if="msg.meta?.chunks?.length && !isLoading"
                 icon="mdi-information-outline"
                 v-bind="activatorProps"
               />
             </template>
             <strong>Fuentes:</strong>
-            <ul v-if="msg.meta?.chunks?.length" class="pl-4">
+            <ul v-if="msg.meta?.chunks?.length && !isLoading" class="pl-4">
               <li v-for="(s, i) in msg.meta.chunks" :key="i">
                 {{ s.filename || "documento" }}
                 <span v-if="s.topic"> — {{ s.topic }}</span>
                 <span v-if="s.module"> ({{ s.module }})</span>
               </li>
             </ul>
-          </v-tooltip>
+          </v-tooltip> -->
         </template>
       </div>
 

@@ -48,6 +48,82 @@ class E5Embedding(HuggingFaceEmbedding):
 # Router
 # --------------------------------------------------------------------------------------
 router = APIRouter()
+# --------------------------------------------------------------------------------------
+# --- MÉTRICAS / LOGGING ---
+# --------------------------------------------------------------------------------------
+import time, json
+from datetime import datetime
+from pathlib import Path
+
+METRICS_LOG = Path(os.getenv("METRICS_LOG", "metrics_platino.jsonl"))
+def _log_event(event: dict):
+    METRICS_LOG.parent.mkdir(parents=True, exist_ok=True)
+    event["ts"] = datetime.utcnow().isoformat() + "Z"
+    with open(METRICS_LOG, "a", encoding="utf-8") as f:
+        f.write(json.dumps(event, ensure_ascii=False) + "\n")
+
+import numpy as np
+import re
+
+# Groundedness
+
+def _split_sentences(text: str):
+    sents = re.split(r'(?<=[\.\?\!])\s+|\n+', text.strip())
+    return [s.strip() for s in sents if s.strip()]
+
+def _cosine(u, v):
+    u = np.array(u, dtype=float); v = np.array(v, dtype=float)
+    du = np.linalg.norm(u) + 1e-12
+    dv = np.linalg.norm(v) + 1e-12
+    return float(np.dot(u, v) / (du * dv))
+
+def compute_groundedness_sem(answer: str, nodes) -> dict:
+    """
+    Para cada oración de la respuesta, calcula la máxima similitud coseno
+    (E5) contra los chunks recuperados. Devuelve mean/median/min.
+    """
+    try:
+        if not answer or not nodes:
+            return {"mean": None, "median": None, "min": None, "n_sents": 0, "n_ctx": 0}
+
+        embedder = Settings.embed_model  # tu E5Embedding ya configurado
+        # Embeddings del contexto (capados por estabilidad)
+        ctx_texts = []
+        for n in nodes:
+            try:
+                ctx_texts.append(n.get_content()[:1000])
+            except Exception:
+                pass
+        if not ctx_texts:
+            return {"mean": None, "median": None, "min": None, "n_sents": 0, "n_ctx": 0}
+        ctx_embs = [embedder.get_text_embedding(t) for t in ctx_texts]
+
+        # Oraciones de la respuesta
+        sents = _split_sentences(answer)
+        if not sents:
+            return {"mean": None, "median": None, "min": None, "n_sents": 0, "n_ctx": len(ctx_embs)}
+        ans_embs = [embedder.get_text_embedding(s) for s in sents]
+
+        # Máxima similitud por oración
+        per_sent_max = []
+        for a in ans_embs:
+            sims = [_cosine(a, c) for c in ctx_embs]
+            per_sent_max.append(max(sims) if sims else 0.0)
+
+        arr = np.array(per_sent_max, dtype=float)
+        return {
+            "mean": float(np.mean(arr)),
+            "median": float(np.median(arr)),
+            "min": float(np.min(arr)),
+            "n_sents": len(sents),
+            "n_ctx": len(ctx_embs),
+        }
+    except Exception:
+        return {"mean": None, "median": None, "min": None, "n_sents": 0, "n_ctx": 0}
+
+
+
+
 
 # --------------------------------------------------------------------------------------
 # Global config
@@ -75,7 +151,7 @@ RAG_SIMILARITY_THRESHOLD = float(os.getenv("RAG_SIMILARITY_THRESHOLD", "0.6"))
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")  # single source of truth
 
 #Variables de inferencia
-MAX_NEW_TOKENS = int(os.getenv("MAX_NEW_TOKENS", "1024"))  # o 2048 / -1 (sin límite)
+MAX_NEW_TOKENS = int(os.getenv("MAX_NEW_TOKENS", "4096"))  # o 2048 / -1 (sin límite)
 NUM_CTX        = int(os.getenv("NUM_CTX", "8192"))         # según el modelo (p.ej., 8192 o 32768)
 READ_TIMEOUT_S = int(os.getenv("READ_TIMEOUT_S", "600"))
 
@@ -131,6 +207,29 @@ def _index_nodes_in_qdrant(nodes, metadata: Dict[str, Any]):
     storage_context = StorageContext.from_defaults(vector_store=vector_store)
     VectorStoreIndex(nodes, storage_context=storage_context)
 
+INTENT_SYS = """Eres un clasificador de intención.
+Devuelve solo una palabra: RAG o CHITCHAT.
+- RAG: la entrada pide info del corpus.
+- CHITCHAT: saludos/charla ('hola', 'gracias', etc.)."""
+
+def classify_intent(question: str) -> str:
+    try:
+        r = requests.post(
+            f"{OLLAMA_URL}/api/generate",
+            json={
+                "model": "llama3.1:8b",
+                "prompt": f"{INTENT_SYS}\n\nEntrada: {question}\nSalida:",
+                "options": {"num_predict": 1},
+                "stream": False
+            },
+            timeout=10,
+        )
+        label = (r.json().get("response") or "").strip().upper()
+        return "RAG" if "RAG" in label else "CHITCHAT"
+    except Exception:
+        tokens = question.lower().strip().split()
+        greetings = {"hola","buenas","hey","hello","hi","gracias"}
+        return "CHITCHAT" if (len(tokens)<=3 or any(t in greetings for t in tokens)) else "RAG"
 
 # --------------------------------------------------------------------------------------
 # Schemas
@@ -417,108 +516,6 @@ async def chat(
         print("❌ Error en /chat:", e)
         traceback.print_exc()
         raise HTTPException(status_code=400, detail=str(e))
-# @router.post("/chat")
-# async def chat(body: ChatRequest):
-#     payload: Dict[str, Any] = {
-#         "model": body.model,
-#         "messages": [m.dict() for m in body.messages],
-#         "stream": body.stream,
-#     }
-#     if body.options:
-#         payload["options"] = body.options
-
-#     if body.stream:
-#         async def streamer():
-#             async with httpx.AsyncClient(timeout=None) as client:
-#                 async with client.stream("POST", f"{OLLAMA_URL}/api/chat", json=payload) as resp:
-#                     if resp.status_code == 404:
-#                         raise HTTPException(502, detail="Ollama devolvió 404 en /api/chat. Revisa URL/puerto o versión.")
-#                     if resp.status_code >= 400:
-#                         text = await resp.aread()
-#                         raise HTTPException(resp.status_code, detail=f"Error Ollama: {text.decode('utf-8','ignore')}")
-#                     async for line in resp.aiter_lines():
-#                         if line:
-#                             yield line + "\n"
-#         return StreamingResponse(streamer(), media_type="application/x-ndjson")
-#     else:
-#         async with httpx.AsyncClient(timeout=None) as client:
-#             r = await client.post(f"{OLLAMA_URL}/api/chat", json=payload)
-#             if r.status_code == 404:
-#                 raise HTTPException(502, detail="Ollama devolvió 404 en /api/chat. Revisa URL/puerto o versión.")
-#             if r.status_code >= 400:
-#                 raise HTTPException(r.status_code, detail=f"Error Ollama: {r.text}")
-#             return JSONResponse(content=r.json())
-
-
-# --------------------------------------------------------------------------------------
-# Simple RAG chat (retrieval optional if collection exists)
-# --------------------------------------------------------------------------------------
-# @router.post("/chat_rag")
-# async def chat_rag(payload: Dict[str, Any], db: Session = Depends(get_db)):
-#     question = payload.get("question") if isinstance(payload, dict) else None
-#     if not question:
-#         raise HTTPException(status_code=400, detail="Question required")
-
-#     model_name = "llama3.1:8b"
-
-#     try:
-#         client = QdrantClient(url=QDRANT_URL)
-#         collection_exists = True
-#         try:
-#             client.get_collection(QDRANT_COLLECTION)
-#         except UnexpectedResponse as ex:
-#             if getattr(ex, "status_code", None) == 404:
-#                 collection_exists = False
-#             else:
-#                 raise
-#         except Exception:
-#             collection_exists = False
-
-#         nodes = []
-#         if collection_exists:
-#             vector_store = QdrantVectorStore(client=client, collection_name=QDRANT_COLLECTION)
-#             storage_context = StorageContext.from_defaults(vector_store=vector_store)
-#             index = VectorStoreIndex.from_vector_store(vector_store=vector_store, storage_context=storage_context)
-#             retriever = index.as_retriever(similarity_top_k=5)
-#             nodes = retriever.retrieve(question)
-
-#         context = "\n".join([n.get_content() for n in nodes]) if nodes else ""
-#         if context.strip():
-#             prompt = f"Contexto:\n{context}\n\nPregunta: {question}\nRespuesta:"
-#         else:
-#             prompt = f"Pregunta: {question}\nRespuesta:"
-
-   
-#         resp = requests.post(
-#             f"{OLLAMA_URL}/api/generate",
-#             json={"model": model_name, "prompt": prompt, "stream": True, "options": {
-#                 "num_gpu": 1,
-#             }},
-#             timeout=(10, 600),
-#         )
-#         if resp.status_code != 200:
-#             raise HTTPException(status_code=500, detail=f"Ollama error: {resp.text}")
-
-#         data = resp.json()
-#         answer = data.get("response") or data.get("answer") or ""
-#         meta = [
-#             {
-#                 "document_id": (getattr(n, "metadata", {}) or {}).get("document_id"),
-#                 "filename": (getattr(n, "metadata", {}) or {}).get("filename"),
-#                 "topic": (getattr(n, "metadata", {}) or {}).get("topic"),
-#                 "module": (getattr(n, "metadata", {}) or {}).get("module"),
-#             }
-#             for n in nodes
-#         ] if nodes else []
-
-#         return {"answer": answer, "chunks": meta, "used_rag": bool(nodes)}
-
-#     except HTTPException:
-#         raise
-#     except Exception as e:
-#         traceback.print_exc()
-#         raise HTTPException(status_code=400, detail=str(e))
-
 
 from fastapi.responses import StreamingResponse
 import httpx
@@ -531,22 +528,46 @@ async def chat_rag(
     db: Session = Depends(get_db),
 ):
     question = payload.get("question")
+    stream_flag: bool = bool(payload.get("stream", True))
+
+    intent = classify_intent(question)
     if not question:
         raise HTTPException(status_code=400, detail="Question required")
 
+    
+    
     # --- retrieval ---
+    t0 = time.time()
     client = QdrantClient(url=QDRANT_URL)
     nodes = []
+    retrieve_ok = True
     try:
         vector_store = QdrantVectorStore(client=client, collection_name=QDRANT_COLLECTION)
         storage_context = StorageContext.from_defaults(vector_store=vector_store)
         index = VectorStoreIndex.from_vector_store(vector_store=vector_store, storage_context=storage_context)
-        retriever = index.as_retriever(similarity_top_k=5)
-        retrieved = retriever.retrieve(question)
-        nodes = [n for n in retrieved if getattr(n, "score", 0) >= RAG_SIMILARITY_THRESHOLD]
-    except Exception:
-        nodes = []
 
+
+        retriever = index.as_retriever(similarity_top_k=5 , similarity_cutoff=RAG_SIMILARITY_THRESHOLD )
+        retrieved = retriever.retrieve(question)
+        # guardamos todos los scores crudos
+
+        raw_hits = [{
+            "score": getattr(n, "score", None),
+            "filename": (getattr(n, "metadata", {}) or {}).get("filename"),
+            "document_id": (getattr(n, "metadata", {}) or {}).get("document_id"),
+        } for n in retrieved]
+        # filtramos por umbral configurado
+        nodes = [n for n in retrieved if getattr(n, "score", 0) >= RAG_SIMILARITY_THRESHOLD]
+        
+    except Exception as e:
+        retrieve_ok = False
+        raw_hits = []
+        nodes = []
+    t1 = time.time()
+    retrieval_latency = t1 - t0
+    used_rag = (intent == "RAG") and (len(nodes) >= 2)
+
+    # --- construcción del prompt + metadatos para UI y citas ---
     BASE_INSTRUCCIONES = """
     Eres un asistente para estudiantes de historia del arte.
     Responde SIEMPRE en **Markdown** (títulos, listas, énfasis cuando ayude; nada de HTML).
@@ -554,14 +575,13 @@ async def chat_rag(
     Responde de forma breve primero (resumen en 1–3 frases) y luego desarrolla si procede.
     """
 
-    if nodes:
+    if used_rag:
         INSTRUCCIONES = BASE_INSTRUCCIONES + """
     Política de uso de contexto:
     - Si el contexto es RELEVANTE para la pregunta, úsalo para fundamentar.
-    - Si el contexto NO es relevante o está vacío, responde con conocimiento general, sin disculparte ni mencionar que falta contexto.
+    - Si el contexto NO es relevante o está vacío, responde con conocimiento general.
     Citas:
-    - Si usaste el contexto, al final añade una sección de nivel 3 llamada "### Fuentes" con una lista de viñetas de las fuentes (usa exactamente los nombres de archivo que te doy).
-    - Si NO usaste contexto, NO añadas la sección de fuentes.
+    - Si usaste el contexto, al final añade "### Fuentes" con la lista de archivos utilizados (exactamente los nombres).
     """
 
         def _truncate(txt: str, max_chars=1200):
@@ -607,8 +627,23 @@ async def chat_rag(
     ### Respuesta (en Markdown)
     """
 
+    # --- generación (latencia) ---
     async def ndjson_generator():
-        yield json.dumps({"event": "meta", "data": {"chunks": meta, "used_rag": bool(nodes)}}) + "\n"
+        # primer frame: metadatos y datos de recuperación
+        _log_event({
+            "type": "retrieval",
+            "question": question,
+            "collection": QDRANT_COLLECTION,
+            "similarity_top_k": 5,
+            "similarity_threshold": RAG_SIMILARITY_THRESHOLD,
+            "retrieval_latency_s": retrieval_latency,
+            "retrieval_ok": retrieve_ok,
+            "raw_hits": raw_hits,
+            "used_rag": used_rag,
+        })
+        yield json.dumps({"event": "meta", "data": {"chunks": meta, "used_rag": used_rag}}) + "\n"
+
+        t2 = time.time()
         async with httpx.AsyncClient(timeout=None) as client_http:
             async with client_http.stream(
                 "POST",
@@ -617,25 +652,189 @@ async def chat_rag(
                     "model": "llama3.1:8b",
                     "prompt": prompt,
                     "stream": True,
-                    "keep_alive": "30m",  # mantiene el modelo cargado
-                    "options": {"num_predict": 256, },
+                    "keep_alive": "30m",
                     "options": {
-                        "num_predict": MAX_NEW_TOKENS,  # más tokens de salida
-                        "num_ctx": NUM_CTX,             # más contexto para caber contexto+respuesta
-                        "repeat_penalty": 1.1,           # opcional: evita bucles al alargar salidas
+                        "num_predict": MAX_NEW_TOKENS,
+                        "num_ctx": NUM_CTX,
+                        "repeat_penalty": 1.1,
                         "num_gpu": 1
                     }
                 },
             ) as resp:
                 if resp.status_code != 200:
                     text = await resp.aread()
+                    _log_event({
+                        "type": "generation_error",
+                        "question": question,
+                        "status": resp.status_code,
+                        "error": text.decode("utf-8","ignore"),
+                    })
                     yield json.dumps({"event": "error", "data": text.decode("utf-8", "ignore")}) + "\n"
                     return
+                answer_parts = []
                 async for line in resp.aiter_lines():
                     if await request.is_disconnected():
                         break
                     if not line:
                         continue
+                    try:
+                        obj = json.loads(line)
+                        if "response" in obj:
+                            answer_parts.append(obj["response"])
+                    except Exception:
+                        pass
                     yield line + "\n"
+        t3 = time.time()
+        gen_latency = t3 - t2
+        final_answer = "".join(answer_parts)
+        
+        # Groundedness semántica (proxy de faithfulness) ---
+        grounded = compute_groundedness_sem(final_answer, nodes)
+
+        _log_event({
+            "type": "generation",
+            "question": question,
+            "used_rag": used_rag,
+            "gen_latency_s": gen_latency,
+            "answer_len_chars": len(final_answer),
+            "tokens_approx": len(final_answer.split()),
+            "answer": final_answer,
+            "files_used": [m["filename"] for m in meta] if used_rag else [],
+            "groundedness_sem": grounded  # {mean, median, min, n_sents, n_ctx}
+        })
+
+    if not stream_flag:
+        _log_event({
+            "type": "retrieval",
+            "question": question,
+            "collection": QDRANT_COLLECTION,
+            "similarity_top_k": 5,
+            "similarity_threshold": RAG_SIMILARITY_THRESHOLD,
+            "retrieval_latency_s": retrieval_latency,
+            "retrieval_ok": retrieve_ok,
+            "raw_hits": raw_hits,
+            "used_rag": used_rag,
+        })
+
+        t2 = time.time()
+        async with httpx.AsyncClient(timeout=None) as client_http:
+            resp = await client_http.post(
+                f"{OLLAMA_URL}/api/generate",
+                json={
+                    "model": "llama3.1:8b",
+                    "prompt": prompt,
+                    "stream": False,           # ← clave: NO streaming
+                    "keep_alive": "30m",
+                    "options": {
+                        "num_predict": MAX_NEW_TOKENS,
+                        "num_ctx": NUM_CTX,
+                        "repeat_penalty": 1.1,
+                        "num_gpu": 1
+                    }
+                },
+            )
+        if resp.status_code != 200:
+            _log_event({"type": "generation_error", "question": question,
+                        "status": resp.status_code, "error": resp.text})
+            raise HTTPException(status_code=500, detail=f"Ollama error: {resp.text}")
+
+        gen_latency = time.time() - t2
+        data = resp.json()
+        final_answer = data.get("response") or data.get("answer") or ""
+        grounded = compute_groundedness_sem(final_answer, nodes)
+
+        _log_event({
+            "type": "generation", "question": question, "used_rag": used_rag,
+            "gen_latency_s": gen_latency, "answer_len_chars": len(final_answer),
+            "tokens_approx": len(final_answer.split()),
+            "files_used": [m["filename"] for m in meta] if used_rag else [],
+            "groundedness_sem": grounded,
+            "answer": final_answer,
+        })
+
+        return {
+            "answer": final_answer,
+            "chunks": meta,
+            "used_rag": used_rag,
+            "retrieval": {
+                "latency_s": retrieval_latency,
+                "ok": retrieve_ok,
+                "raw_hits": raw_hits
+            },
+            "generation": {"latency_s": gen_latency},
+            "groundedness_sem": grounded
+        }
 
     return StreamingResponse(ndjson_generator(), media_type="application/x-ndjson")
+
+
+# --------------------------------------------------------------------------------------
+# --- Endpoint para evaluación de recuperación (precision/recall/F1@k) ---
+# Body
+# POST /eval/retrieval
+# {
+#   "items": [
+#     {
+#       "question": "¿Qué es el arte románico?",
+#       "gold_filenames": ["apuntes_tema1.pdf", "historia_románico.pdf"],
+#       "k": 5
+#     }
+#   ]
+# }
+# --------------------------------------------------------------------------------------
+
+from sklearn.metrics import precision_score, recall_score, f1_score
+
+class RetrievalEvalItem(BaseModel):
+    question: str
+    gold_filenames: List[str]  # define tu oro por nombres de archivo (o cambia a IDs)
+    k: int = 5
+    threshold: float = RAG_SIMILARITY_THRESHOLD
+
+class RetrievalEvalRequest(BaseModel):
+    items: List[RetrievalEvalItem]
+
+@router.post("/eval/retrieval")
+async def eval_retrieval(payload: RetrievalEvalRequest):
+    client = QdrantClient(url=QDRANT_URL)
+    vector_store = QdrantVectorStore(client=client, collection_name=QDRANT_COLLECTION)
+    storage_context = StorageContext.from_defaults(vector_store=vector_store)
+    index = VectorStoreIndex.from_vector_store(vector_store=vector_store, storage_context=storage_context)
+    retriever = index.as_retriever(similarity_top_k=max((it.k for it in payload.items), default=5))
+
+    results = []
+    bin_gold_all, bin_pred_all = [], []
+
+    for it in payload.items:
+        retrieved = retriever.retrieve(it.question)
+        # top-k y umbral
+        filtered = [n for n in retrieved if getattr(n, "score", 0) >= it.threshold][:it.k]
+        got_filenames = [(getattr(n, "metadata", {}) or {}).get("filename") for n in filtered]
+
+        # vector binario por universo = union(gold ∪ got) para estabilidad
+        universe = sorted(set(it.gold_filenames) | set(got_filenames))
+        gold_bin = [1 if f in it.gold_filenames else 0 for f in universe]
+        pred_bin = [1 if f in got_filenames else 0 for f in universe]
+
+        p = precision_score(gold_bin, pred_bin, zero_division=0)
+        r = recall_score(gold_bin, pred_bin, zero_division=0)
+        f1 = f1_score(gold_bin, pred_bin, zero_division=0)
+
+        results.append({
+            "question": it.question,
+            "k": it.k,
+            "threshold": it.threshold,
+            "precision": p, "recall": r, "f1": f1,
+            "retrieved": got_filenames,
+            "gold": it.gold_filenames,
+        })
+        bin_gold_all.extend(gold_bin)
+        bin_pred_all.extend(pred_bin)
+
+    macro_p = precision_score(bin_gold_all, bin_pred_all, zero_division=0)
+    macro_r = recall_score(bin_gold_all, bin_pred_all, zero_division=0)
+    macro_f1 = f1_score(bin_gold_all, bin_pred_all, zero_division=0)
+
+    summary = {"precision": macro_p, "recall": macro_r, "f1": macro_f1, "n": len(payload.items)}
+    _log_event({"type": "eval_retrieval", "summary": summary, "results": results})
+    return {"summary": summary, "results": results}
