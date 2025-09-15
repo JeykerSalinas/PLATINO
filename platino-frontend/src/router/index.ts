@@ -33,6 +33,11 @@ const routes: RouteRecordRaw[] = [
       },
     ],
   },
+  {
+    path: "/metrics",
+    name: "metrics",
+    component: () => import("@/pages/metrics/index.vue"),
+  },
 ];
 
 const router = createRouter({

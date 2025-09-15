@@ -463,59 +463,59 @@ async def set_file_topic(doc_id: int, topic_id: Optional[int], db: Session = Dep
 # --------------------------------------------------------------------------------------
 # Chat API (pass-through to Ollama)
 # --------------------------------------------------------------------------------------
-@router.post("/chat")
-async def chat(
-    payload: dict,
-    db: Session = Depends(get_db),
-):
-    print('payload****************')
-    print(payload)
-    """Simple RAG chat endpoint using Ollama as LLM."""
-    question = payload.get("question") if isinstance(payload, dict) else None
-    if not question:
-        raise HTTPException(status_code=400, detail="Question required")
+# @router.post("/chat")
+# async def chat(
+#     payload: dict,
+#     db: Session = Depends(get_db),
+# ):
+#     print('payload****************')
+#     print(payload)
+#     """Simple RAG chat endpoint using Ollama as LLM."""
+#     question = payload.get("question") if isinstance(payload, dict) else None
+#     if not question:
+#         raise HTTPException(status_code=400, detail="Question required")
 
-    try:
-        client = QdrantClient(url=QDRANT_URL)
-        vector_store = QdrantVectorStore(client=client, collection_name=QDRANT_COLLECTION)
-        storage_context = StorageContext.from_defaults(vector_store=vector_store)
-        index = VectorStoreIndex.from_vector_store(vector_store=vector_store, storage_context=storage_context)
+#     try:
+#         client = QdrantClient(url=QDRANT_URL)
+#         vector_store = QdrantVectorStore(client=client, collection_name=QDRANT_COLLECTION)
+#         storage_context = StorageContext.from_defaults(vector_store=vector_store)
+#         index = VectorStoreIndex.from_vector_store(vector_store=vector_store, storage_context=storage_context)
 
-        retriever = index.as_retriever(similarity_top_k=5)
-        nodes = retriever.retrieve(question)
+#         retriever = index.as_retriever(similarity_top_k=5)
+#         nodes = retriever.retrieve(question)
 
-        context = "\n".join([n.get_content() for n in nodes])
-        prompt = f"Contexto:\n{context}\n\nPregunta: {question}\nRespuesta:"
+#         context = "\n".join([n.get_content() for n in nodes])
+#         prompt = f"Contexto:\n{context}\n\nPregunta: {question}\nRespuesta:"
 
-        response = requests.post(
-            "http://localhost:11434/api/generate",
-            json={"model": "llama3", "prompt": prompt, "stream": False},
-            timeout=60,
-        )
-        if response.status_code != 200:
-            raise HTTPException(status_code=500, detail=f"Ollama error: {response.text}")
+#         response = requests.post(
+#             "http://localhost:11434/api/generate",
+#             json={"model": "llama3", "prompt": prompt, "stream": False},
+#             timeout=60,
+#         )
+#         if response.status_code != 200:
+#             raise HTTPException(status_code=500, detail=f"Ollama error: {response.text}")
 
-        data = response.json()
-        answer = data.get("response") or data.get("answer") or ""
+#         data = response.json()
+#         answer = data.get("response") or data.get("answer") or ""
 
-        meta = [
-            {
-                "document_id": n.metadata.get("document_id"),
-                "filename": n.metadata.get("filename"),
-                "topic": n.metadata.get("topic"),
-                "module": n.metadata.get("module"),
-            }
-            for n in nodes
-        ]
+#         meta = [
+#             {
+#                 "document_id": n.metadata.get("document_id"),
+#                 "filename": n.metadata.get("filename"),
+#                 "topic": n.metadata.get("topic"),
+#                 "module": n.metadata.get("module"),
+#             }
+#             for n in nodes
+#         ]
 
-        return {"answer": answer, "chunks": meta}
+#         return {"answer": answer, "chunks": meta}
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        print("❌ Error en /chat:", e)
-        traceback.print_exc()
-        raise HTTPException(status_code=400, detail=str(e))
+#     except HTTPException:
+#         raise
+#     except Exception as e:
+#         print("❌ Error en /chat:", e)
+#         traceback.print_exc()
+#         raise HTTPException(status_code=400, detail=str(e))
 
 from fastapi.responses import StreamingResponse
 import httpx
